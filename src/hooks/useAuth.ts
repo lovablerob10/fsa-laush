@@ -7,7 +7,7 @@ export function useAuth() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Pega sessão atual
+        // Pega sessão atual ao montar
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session?.user) {
                 loadUserProfile(session.user.id);
@@ -16,12 +16,12 @@ export function useAuth() {
             }
         });
 
-        // Listener tempo real de auth
+        // Listener tempo real de auth state
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
-                if (session?.user) {
+                if (event === 'SIGNED_IN' && session?.user) {
                     await loadUserProfile(session.user.id);
-                } else {
+                } else if (event === 'SIGNED_OUT') {
                     logout();
                     setLoading(false);
                 }
@@ -34,19 +34,21 @@ export function useAuth() {
     async function loadUserProfile(authUserId: string) {
         setLoading(true);
         try {
-            // Busca perfil do usuário + tenant
             const { data: userProfile, error } = await supabase
                 .from('users')
-                .select('*, tenants(*)')
+                .select('id, name, email, role, avatar_url, tenant_id, created_at, tenants(id, name, slug, settings, created_at)')
                 .eq('id', authUserId)
                 .single();
 
             if (error || !userProfile) {
-                // Usuário autenticado mas sem perfil ainda — raro, mas trata
-                console.warn('Usuário sem perfil em public.users:', authUserId);
+                console.warn('Perfil não encontrado para:', authUserId, error?.message);
+                // Limpa sessão Supabase para não ficar em loop
+                await supabase.auth.signOut();
                 logout();
                 return;
             }
+
+            const tenant = (userProfile as any).tenants;
 
             setUser({
                 id: userProfile.id,
@@ -59,14 +61,15 @@ export function useAuth() {
             });
 
             setTenant({
-                id: (userProfile as any).tenants.id,
-                name: (userProfile as any).tenants.name,
-                slug: (userProfile as any).tenants.slug,
-                settings: (userProfile as any).tenants.settings,
-                created_at: (userProfile as any).tenants.created_at,
+                id: tenant.id,
+                name: tenant.name,
+                slug: tenant.slug,
+                settings: tenant.settings,
+                created_at: tenant.created_at,
             });
         } catch (err) {
             console.error('Erro ao carregar perfil:', err);
+            await supabase.auth.signOut();
             logout();
         } finally {
             setLoading(false);
