@@ -1,482 +1,236 @@
-import { useEffect, useState } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Users, 
-  ShoppingCart, 
-  DollarSign, 
-  Target,
-  MessageCircle,
-  Percent,
-  Building2,
-  ChevronDown
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { useAuthStore } from '@/store';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Progress } from '@/components/ui/progress';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell
+  TrendingUp, TrendingDown, Users, DollarSign, Target,
+  MessageCircle, ShoppingCart, BarChart3, Sparkles, ArrowUpRight,
+  Clock, Zap, Bot
+} from 'lucide-react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, AreaChart, Area
 } from 'recharts';
-import { useDashboardStore, useAuthStore } from '@/store';
-import { supabase } from '@/lib/supabase/client';
-import { format, subDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { format, subDays } from 'date-fns';
 
-// Dados mockados para demonstração
-const mockRevenueData = Array.from({ length: 30 }, (_, i) => ({
-  date: format(subDays(new Date(), 29 - i), 'dd/MM'),
-  revenue: Math.floor(Math.random() * 50000) + 20000,
-  target: 40000,
+// Mock data
+const revenueData = Array.from({ length: 14 }, (_, i) => ({
+  date: format(subDays(new Date(), 13 - i), 'dd/MM'),
+  revenue: Math.floor(Math.random() * 40000) + 20000,
+  leads: Math.floor(Math.random() * 100) + 30,
 }));
 
-const mockFunnelData = [
-  { stage: 'Leads', value: 1000, color: '#8b5cf6' },
-  { stage: 'Qualificados', value: 650, color: '#a78bfa' },
-  { stage: 'Oportunidades', value: 320, color: '#c4b5fd' },
-  { stage: 'Propostas', value: 180, color: '#ddd6fe' },
-  { stage: 'Clientes', value: 85, color: '#10b981' },
+const stats = [
+  { label: 'Receita Total', value: 'R$ 127.480', change: '+12.5%', up: true, icon: DollarSign, color: 'from-emerald-500 to-teal-500', shadowColor: 'shadow-emerald-500/20' },
+  { label: 'Leads Captados', value: '2.340', change: '+8.2%', up: true, icon: Users, color: 'from-violet-500 to-indigo-500', shadowColor: 'shadow-violet-500/20' },
+  { label: 'Taxa de Conversão', value: '4.8%', change: '+0.3%', up: true, icon: Target, color: 'from-amber-500 to-orange-500', shadowColor: 'shadow-amber-500/20' },
+  { label: 'CPL Médio', value: 'R$ 3,42', change: '-5.1%', up: false, icon: ShoppingCart, color: 'from-cyan-500 to-blue-500', shadowColor: 'shadow-cyan-500/20' },
 ];
 
-const mockSourceData = [
-  { name: 'Orgânico', value: 35, color: '#8b5cf6' },
-  { name: 'Pago', value: 45, color: '#f59e0b' },
-  { name: 'Indicação', value: 20, color: '#10b981' },
+const quickActions = [
+  { label: 'Criar Briefing', icon: Sparkles, desc: 'Novo expert', page: 'briefing' },
+  { label: 'Mini CRM', icon: Users, desc: 'Leads e oportunidades', page: 'crm' },
+  { label: 'WhatsApp', icon: MessageCircle, desc: 'Disparos e mensagens', page: 'whatsapp' },
+  { label: 'Equipe IA', icon: Bot, desc: '16 agentes trabalhando', page: 'ai-agents' },
 ];
 
-interface MetricCardProps {
-  title: string;
-  value: string;
-  change: number;
-  icon: React.ElementType;
-  trend: 'up' | 'down' | 'neutral';
+const agentActivities = [
+  { agent: 'Emilio', task: 'Escrevendo 12 emails de lançamento', time: '3 min atrás', status: 'working' },
+  { agent: 'Picasso', task: 'Analisou 8 Reels top do nicho', time: '15 min atrás', status: 'done' },
+  { agent: 'Pluto', task: 'Pesquisando 5 prospects LinkedIn', time: 'Agora', status: 'working' },
+  { agent: 'Cicero', task: 'Gerou 4 posts multi-plataforma', time: '1h atrás', status: 'done' },
+];
+
+function CustomTooltip({ active, payload, label }: any) {
+  if (active && payload && payload.length) {
+    return (
+      <div className="glass-card p-3 !border-slate-700/60">
+        <p className="text-xs text-slate-400 mb-1">{label}</p>
+        {payload.map((p: any, i: number) => (
+          <p key={i} className="text-sm font-semibold" style={{ color: p.color }}>
+            {p.name === 'revenue' ? `R$ ${(p.value / 1000).toFixed(1)}k` : p.value}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return null;
 }
-
-function MetricCard({ title, value, change, icon: Icon, trend }: MetricCardProps) {
-  return (
-    <Card className="hover:shadow-lg transition-shadow">
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-slate-500">{title}</p>
-            <h3 className="text-2xl font-bold text-slate-900 mt-1">{value}</h3>
-            <div className="flex items-center gap-1 mt-2">
-              {trend === 'up' ? (
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
-              ) : trend === 'down' ? (
-                <TrendingDown className="w-4 h-4 text-red-500" />
-              ) : null}
-              <span className={cn(
-                'text-sm font-medium',
-                trend === 'up' ? 'text-emerald-500' : 
-                trend === 'down' ? 'text-red-500' : 'text-slate-500'
-              )}>
-                {change > 0 ? '+' : ''}{change}%
-              </span>
-              <span className="text-sm text-slate-400">vs mês anterior</span>
-            </div>
-          </div>
-          <div className="w-12 h-12 bg-violet-100 rounded-xl flex items-center justify-center">
-            <Icon className="w-6 h-6 text-violet-600" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Mock de clientes para demonstração
-const MOCK_CLIENTS = [
-  { id: '1', name: 'Launch Lab Pro' },
-  { id: '2', name: 'Cliente A - Fitness' },
-  { id: '3', name: 'Cliente B - Marketing' },
-  { id: '4', name: 'Cliente C - Finanças' },
-];
 
 export function Dashboard() {
-  const { metrics, setMetrics, dateRange } = useDashboardStore();
-  const { tenant, setTenant } = useAuthStore();
-  const [activeLaunch, setActiveLaunch] = useState<any>(null);
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [dateRange]);
-
-  async function loadDashboardData() {
-    try {
-      // Busca lançamento ativo
-      const { data: launch } = await supabase
-        .from('launches')
-        .select('*')
-        .eq('tenant_id', tenant?.id)
-        .eq('status', 'active')
-        .single();
-
-      setActiveLaunch(launch);
-
-      // Calcula métricas (simulado - em produção viría da função RPC)
-      const mockMetrics = {
-        revenue: {
-          current: 1250000,
-          target: 2000000,
-          previous_period: 980000,
-        },
-        leads: {
-          total: 3456,
-          new: 234,
-          qualified: 1890,
-        },
-        conversion: {
-          rate: 4.8,
-          funnel: {
-            lead: 3456,
-            qualified: 1890,
-            opportunity: 567,
-            proposal: 234,
-            customer: 167,
-          },
-        },
-        cpl: 45.50,
-        roi: 285,
-        recovery: {
-          sent: 234,
-          recovered: 67,
-          revenue: 125000,
-        },
-      };
-
-      setMetrics(mockMetrics);
-    } catch (error) {
-      console.error('Erro ao carregar dashboard:', error);
-    }
-  }
-
-  const revenueProgress = metrics ? 
-    (metrics.revenue.current / metrics.revenue.target) * 100 : 0;
+  const { activeTenant } = useAuthStore() as any;
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500">
-            {format(dateRange.start, 'dd/MM/yyyy')} - {format(dateRange.end, 'dd/MM/yyyy')}
+          <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
+          <p className="text-slate-500 text-sm mt-0.5">
+            Visão geral — <span className="text-violet-400 font-medium">{activeTenant?.name || 'Selecione um cliente'}</span>
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Seletor de Cliente */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <Building2 className="w-4 h-4" />
-                {tenant?.name || 'Selecionar Cliente'}
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {MOCK_CLIENTS.map((client) => (
-                <DropdownMenuItem 
-                  key={client.id}
-                  onClick={() => setTenant({ 
-                    id: client.id, 
-                    name: client.name, 
-                    slug: client.name.toLowerCase().replace(/\s+/g, '-'),
-                    settings: {},
-                    created_at: new Date().toISOString()
-                  })}
-                  className={tenant?.id === client.id ? 'bg-violet-50' : ''}
-                >
-                  <Building2 className="w-4 h-4 mr-2" />
-                  {client.name}
-                  {tenant?.id === client.id && (
-                    <Badge variant="secondary" className="ml-auto bg-violet-100 text-violet-700">
-                      Ativo
-                    </Badge>
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {activeLaunch && (
-            <Badge variant="secondary" className="bg-violet-100 text-violet-700">
-              {activeLaunch.name} - Semana {activeLaunch.current_week}/7
-            </Badge>
-          )}
-          <Button variant="outline" size="sm">
-            Últimos 30 dias
-          </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+            <span className="text-xs text-emerald-400 font-medium">4 agentes ativos</span>
+          </div>
         </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          title="Receita Total"
-          value={metrics ? `R$ ${(metrics.revenue.current / 1000).toFixed(1)}k` : 'R$ 0'}
-          change={metrics ? ((metrics.revenue.current - metrics.revenue.previous_period) / metrics.revenue.previous_period * 100) : 0}
-          icon={DollarSign}
-          trend="up"
-        />
-        <MetricCard
-          title="Leads"
-          value={metrics?.leads.total.toString() || '0'}
-          change={12.5}
-          icon={Users}
-          trend="up"
-        />
-        <MetricCard
-          title="Taxa de Conversão"
-          value={`${metrics?.conversion.rate || 0}%`}
-          change={0.8}
-          icon={Percent}
-          trend="up"
-        />
-        <MetricCard
-          title="CPL"
-          value={`R$ ${metrics?.cpl.toFixed(2) || '0'}`}
-          change={-5.2}
-          icon={Target}
-          trend="down"
-        />
+      {/* Bento Grid: Stat Cards */}
+      <div className="bento-grid">
+        {stats.map((stat, i) => {
+          const Icon = stat.icon;
+          return (
+            <div key={i} className="stat-card group cursor-pointer hover:-translate-y-1">
+              <div className="flex items-start justify-between mb-3">
+                <div className={cn('w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-lg', stat.color, stat.shadowColor)}>
+                  <Icon className="w-5 h-5 text-white" />
+                </div>
+                <span className={cn(stat.up ? 'metric-up' : 'metric-down')}>
+                  {stat.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  {stat.change}
+                </span>
+              </div>
+              <p className="text-2xl font-bold text-white tracking-tight">{stat.value}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{stat.label}</p>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Revenue Progress */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Progresso da Meta de Receita</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-3xl font-bold text-slate-900">
-                  R$ {(metrics?.revenue.current || 0).toLocaleString('pt-BR')}
-                </p>
-                <p className="text-sm text-slate-500">
-                  Meta: R$ {(metrics?.revenue.target || 0).toLocaleString('pt-BR')}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-violet-600">
-                  {revenueProgress.toFixed(1)}%
-                </p>
-                <p className="text-sm text-slate-500">alcançado</p>
-              </div>
+      {/* Bento Grid: Charts + Actions */}
+      <div className="bento-grid">
+        {/* Revenue Chart — 3 cols */}
+        <div className="glass-card p-5 span-3">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-violet-400" />
+                Receita & Leads (14 dias)
+              </h3>
             </div>
-            <Progress value={revenueProgress} className="h-3" />
+            <div className="flex items-center gap-3 text-xs text-slate-500">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500" /> Receita</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Leads</span>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={revenueData}>
+              <defs>
+                <linearGradient id="grad-revenue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(258, 90%, 66%)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="hsl(258, 90%, 66%)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-leads" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(160, 84%, 39%)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="hsl(160, 84%, 39%)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(215, 28%, 12%)" />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(215, 20%, 40%)' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: 'hsl(215, 20%, 40%)' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="revenue" stroke="hsl(258, 90%, 66%)" fill="url(#grad-revenue)" strokeWidth={2} />
+              <Area type="monotone" dataKey="leads" stroke="hsl(160, 84%, 39%)" fill="url(#grad-leads)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Evolução de Receita</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={mockRevenueData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis 
-                  dataKey="date" 
-                  stroke="#64748b"
-                  fontSize={12}
-                  tickLine={false}
-                />
-                <YAxis 
-                  stroke="#64748b"
-                  fontSize={12}
-                  tickLine={false}
-                  tickFormatter={(value) => `R$${value / 1000}k`}
-                />
-                <Tooltip 
-                  formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR')}`}
-                  contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  stroke="#8b5cf6" 
-                  strokeWidth={2}
-                  dot={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="target" 
-                  stroke="#e2e8f0" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Funnel Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Funil de Conversão</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={mockFunnelData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                <XAxis type="number" stroke="#64748b" fontSize={12} />
-                <YAxis 
-                  dataKey="stage" 
-                  type="category" 
-                  stroke="#64748b"
-                  fontSize={12}
-                  width={100}
-                />
-                <Tooltip 
-                  contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                  {mockFunnelData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        {/* Quick Actions — 1 col */}
+        <div className="glass-card p-5">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            Ações Rápidas
+          </h3>
+          <div className="space-y-2">
+            {quickActions.map((action, i) => {
+              const Icon = action.icon;
+              return (
+                <button key={i}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/30 hover:border-violet-500/30 hover:bg-violet-600/5 transition-all group text-left">
+                  <div className="w-9 h-9 rounded-lg bg-slate-800/80 flex items-center justify-center group-hover:bg-violet-600/20 transition-colors">
+                    <Icon className="w-4 h-4 text-slate-400 group-hover:text-violet-400 transition-colors" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] text-slate-300 font-medium truncate">{action.label}</p>
+                    <p className="text-[11px] text-slate-600 truncate">{action.desc}</p>
+                  </div>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-violet-400 transition-colors" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recovery Stats */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-violet-100 rounded-lg flex items-center justify-center">
-                <ShoppingCart className="w-5 h-5 text-violet-600" />
-              </div>
-              <h3 className="font-semibold">Recuperação de Carrinho</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Mensagens enviadas</span>
-                <span className="font-semibold">{metrics?.recovery.sent || 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Carrinhos recuperados</span>
-                <span className="font-semibold text-emerald-600">
-                  {metrics?.recovery.recovered || 0}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Receita recuperada</span>
-                <span className="font-semibold text-emerald-600">
-                  R$ {(metrics?.recovery.revenue || 0).toLocaleString('pt-BR')}
-                </span>
-              </div>
-              <div className="pt-2 border-t">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Taxa de recuperação</span>
-                  <span className="font-bold text-violet-600">
-                    {metrics ? ((metrics.recovery.recovered / metrics.recovery.sent) * 100).toFixed(1) : 0}%
-                  </span>
+      {/* Bento Grid: AI Activity + Metrics */}
+      <div className="bento-grid">
+        {/* AI Agent Activity — 2 cols */}
+        <div className="glass-card p-5 span-2">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Bot className="w-4 h-4 text-violet-400" />
+            Atividade da Equipe IA
+            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 font-semibold">LIVE</span>
+          </h3>
+          <div className="space-y-3">
+            {agentActivities.map((activity, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/20 border border-slate-800/40">
+                <div className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
+                  activity.status === 'working' ? 'bg-violet-600/20 text-violet-400' : 'bg-emerald-600/20 text-emerald-400'
+                )}>
+                  {activity.agent.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] text-slate-300 font-medium truncate">
+                    <span className="text-white font-semibold">{activity.agent}</span> — {activity.task}
+                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Clock className="w-3 h-3 text-slate-600" />
+                    <span className="text-[11px] text-slate-600">{activity.time}</span>
+                    {activity.status === 'working' && (
+                      <span className="flex items-center gap-1 text-[10px] text-violet-400">
+                        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-pulse" />
+                        Trabalhando...
+                      </span>
+                    )}
+                    {activity.status === 'done' && (
+                      <span className="text-[10px] text-emerald-500">✓ Concluído</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            ))}
+          </div>
+        </div>
 
-        {/* Lead Sources */}
-        <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-4">Origem dos Leads</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={mockSourceData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  dataKey="value"
-                >
-                  {mockSourceData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex justify-center gap-4 mt-2">
-              {mockSourceData.map((item) => (
-                <div key={item.name} className="flex items-center gap-1">
-                  <div 
-                    className="w-3 h-3 rounded-full" 
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-sm text-slate-600">{item.name}</span>
+        {/* Launch Progress — 2 cols */}
+        <div className="glass-card p-5 span-2">
+          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <Target className="w-4 h-4 text-amber-400" />
+            Progresso do Lançamento
+          </h3>
+          <div className="space-y-4">
+            {[
+              { label: 'Briefing do Expert', progress: 100, color: 'bg-emerald-500' },
+              { label: 'Página de Vendas', progress: 75, color: 'bg-violet-500' },
+              { label: 'Sequência de Emails', progress: 40, color: 'bg-amber-500' },
+              { label: 'Anúncios Criativos', progress: 20, color: 'bg-cyan-500' },
+              { label: 'Semana de Lançamento', progress: 0, color: 'bg-slate-600' },
+            ].map((item, i) => (
+              <div key={i}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[13px] text-slate-400">{item.label}</span>
+                  <span className="text-[12px] text-slate-500 font-medium">{item.progress}%</span>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* WhatsApp Stats */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-                <MessageCircle className="w-5 h-5 text-emerald-600" />
-              </div>
-              <h3 className="font-semibold">WhatsApp</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Instâncias ativas</span>
-                <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
-                  3/3
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Mensagens hoje</span>
-                <span className="font-semibold">1,234</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Taxa de entrega</span>
-                <span className="font-semibold text-emerald-600">98.5%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Grupos ativos</span>
-                <span className="font-semibold">12</span>
-              </div>
-              <div className="pt-2 border-t">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Templates aprovados</span>
-                  <span className="font-bold text-violet-600">8/10</span>
+                <div className="w-full h-2 bg-slate-800/60 rounded-full overflow-hidden">
+                  <div className={cn('h-2 rounded-full transition-all duration-1000', item.color)}
+                    style={{ width: `${item.progress}%` }} />
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

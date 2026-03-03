@@ -17,13 +17,13 @@ import './App.css';
 
 function ComingSoon({ title }: { title: string }) {
   return (
-    <div className="p-6 flex items-center justify-center min-h-[60vh]">
+    <div className="p-8 flex items-center justify-center min-h-[60vh]">
       <div className="text-center">
-        <div className="w-20 h-20 bg-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+        <div className="w-20 h-20 rounded-2xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-center mx-auto mb-6 neon-glow">
           <span className="text-3xl">🚀</span>
         </div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">{title}</h2>
-        <p className="text-slate-500 max-w-md">
+        <h2 className="text-2xl font-bold text-white mb-2">{title}</h2>
+        <p className="text-slate-400 max-w-md">
           Esta funcionalidade está sendo desenvolvida. Em breve você terá acesso completo.
         </p>
       </div>
@@ -33,12 +33,14 @@ function ComingSoon({ title }: { title: string }) {
 
 function LoadingScreen() {
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
-      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
-        <Rocket className="w-7 h-7 text-white" />
+    <div className="min-h-screen bg-[hsl(222,47%,5%)] flex flex-col items-center justify-center gap-4 relative overflow-hidden">
+      <div className="bg-orb bg-orb-1" />
+      <div className="bg-orb bg-orb-2" />
+      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30 neon-glow">
+        <Rocket className="w-8 h-8 text-white" />
       </div>
       <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
-      <p className="text-slate-500 text-sm">Carregando FSA Launch Lab...</p>
+      <p className="text-slate-500 text-sm tracking-wide">Carregando Launch Lab Pro...</p>
     </div>
   );
 }
@@ -65,10 +67,15 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[hsl(222,47%,5%)] relative overflow-hidden">
+      {/* Background Orbs */}
+      <div className="bg-orb bg-orb-1" />
+      <div className="bg-orb bg-orb-2" />
+      <div className="bg-orb bg-orb-3" />
+
       <Sidebar />
       <main className={cn(
-        'transition-all duration-300 min-h-screen',
+        'transition-all duration-300 min-h-screen relative z-10',
         sidebarOpen ? 'ml-64' : 'ml-16'
       )}>
         {renderPage()}

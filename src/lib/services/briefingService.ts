@@ -4,32 +4,26 @@ export interface BriefingData {
     id?: string;
     tenant_id: string;
     launch_id?: string;
-    // Etapa 1: Expert
     expert_name?: string;
     expert_bio?: string;
     expert_photo_url?: string;
     expert_credentials?: string[];
-    // Etapa 2: Produto
     product_name?: string;
     product_description?: string;
     product_price?: number;
     product_installments?: number;
     product_bonuses?: string[];
     product_guarantee?: string;
-    // Etapa 3: Público
     target_audience?: string;
     audience_pain_points?: string[];
     audience_desires?: string[];
     audience_objections?: string[];
-    // Etapa 4: Promessa
     main_promise?: string;
     main_benefit?: string;
     differentiation?: string;
-    // Etapa 5: Identidade de Marca
     voice_tones?: string[];
     words_to_use?: string[];
     words_to_avoid?: string[];
-    // Etapa 6: Frameworks
     framework_page?: string;
     framework_email?: string;
     framework_whatsapp?: string;
@@ -45,16 +39,12 @@ export const briefingService = {
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
-
-        if (error && error.code !== 'PGRST116') {
-            console.error('Erro ao buscar briefing:', error.message);
-        }
+        if (error && error.code !== 'PGRST116') console.error('Erro ao buscar briefing:', error.message);
         return data || null;
     },
 
     async save(briefing: BriefingData): Promise<BriefingData | null> {
         if (briefing.id) {
-            // Update
             const { data, error } = await supabase
                 .from('briefings')
                 .update({ ...briefing, updated_at: new Date().toISOString() })
@@ -64,7 +54,6 @@ export const briefingService = {
             if (error) throw new Error(error.message);
             return data;
         } else {
-            // Insert
             const { data, error } = await supabase
                 .from('briefings')
                 .insert(briefing)
@@ -77,112 +66,119 @@ export const briefingService = {
 };
 
 // =============================================
-// IA: Geração de conteúdo com OpenAI GPT-4o
+// Build prompt from briefing data
 // =============================================
-export async function generateBriefingContent(briefing: BriefingData, contentType: string): Promise<string> {
-    const apiKey = (briefing as any).__apiKey;
+function buildPrompt(briefing: BriefingData, contentType: string): string {
+    const context = `
+Expert: ${briefing.expert_name || ''}
+Bio: ${briefing.expert_bio || ''}
+Credenciais: ${briefing.expert_credentials?.join(', ') || ''}
+Produto: ${briefing.product_name || ''}
+Descrição: ${briefing.product_description || ''}
+Preço: R$ ${briefing.product_price || ''}
+Parcelas: ${briefing.product_installments || 12}x
+Garantia: ${briefing.product_guarantee || ''}
+Bônus: ${briefing.product_bonuses?.join(', ') || ''}
+Público-Alvo: ${briefing.target_audience || ''}
+Dores: ${briefing.audience_pain_points?.join(', ') || ''}
+Desejos: ${briefing.audience_desires?.join(', ') || ''}
+Objeções: ${briefing.audience_objections?.join(', ') || ''}
+Promessa Central: ${briefing.main_promise || ''}
+Benefício: ${briefing.main_benefit || ''}
+Diferencial: ${briefing.differentiation || ''}
+Tom de voz: ${briefing.voice_tones?.join(', ') || ''}
+Palavras para usar: ${briefing.words_to_use?.join(', ') || ''}
+Palavras para evitar: ${briefing.words_to_avoid?.join(', ') || ''}`.trim();
 
     const prompts: Record<string, string> = {
-        page: `Você é um copywriter especialista em lançamentos digitais. 
-Com base no briefing abaixo, escreva uma PÁGINA DE VENDAS completa em português (pt-BR), estruturada com:
-- Headline poderosa
+        page: `Você é um copywriter especialista em lançamentos digitais brasileiros.
+Com base no briefing abaixo, escreva uma PÁGINA DE VENDAS completa em português (pt-BR):
+- Headline impactante
 - Subheadline
-- História do expert
-- Para quem é este produto
-- O que você vai aprender/conseguir
-- Depoimentos (crie 3 fictícios realistas)
-- Apresentação do produto
-- Bônus
-- Garantia
-- CTA com urgência
+- História do expert (conexão emocional)
+- Para quem é / Para quem NÃO é
+- O que você vai aprender
+- 3 depoimentos realistas
+- Apresentação do produto + módulos
+- Bônus exclusivos
+- Garantia incondicional
+- CTA com urgência e escassez
 
-BRIEFING:
-Expert: ${briefing.expert_name}
-Bio: ${briefing.expert_bio}
-Produto: ${briefing.product_name}
-Preço: R$ ${briefing.product_price}
-Promessa: ${briefing.main_promise}
-Benefício: ${briefing.main_benefit}
-Diferencial: ${briefing.differentiation}
-Público: ${briefing.target_audience}
-Dores: ${briefing.audience_pain_points?.join(', ')}
-Desejos: ${briefing.audience_desires?.join(', ')}
-Objeções: ${briefing.audience_objections?.join(', ')}
-Bônus: ${briefing.product_bonuses?.join(', ')}
-Garantia: ${briefing.product_guarantee}
-Tom de voz: ${briefing.voice_tones?.join(', ')}`,
+BRIEFING:\n${context}`,
 
-        email_sequence: `Você é um copywriter especialista em email marketing para lançamentos.
-Com base no briefing abaixo, escreva uma SEQUÊNCIA DE 5 EMAILS para a semana de lançamento:
-- Email 1: Abertura de carrinho (urgência + benefícios)
-- Email 2: Dia 2 (prova social + depoimentos)
-- Email 3: Quebra de objeções
+        email_sequence: `Você é um copywriter especialista em email marketing para lançamentos digitais.
+Escreva uma SEQUÊNCIA DE 5 EMAILS para a semana de abertura de carrinho:
+- Email 1: Abertura + benefícios + link
+- Email 2: Prova social + depoimentos
+- Email 3: Quebra de objeção principal
 - Email 4: Bônus especial + escassez
 - Email 5: Último dia (urgência máxima)
 
-BRIEFING:
-Expert: ${briefing.expert_name}
-Produto: ${briefing.product_name}
-Preço: R$ ${briefing.product_price}
-Promessa: ${briefing.main_promise}
-Público: ${briefing.target_audience}
-Tom de voz: ${briefing.voice_tones?.join(', ')}`,
+Cada email deve ter: Assunto, Corpo e CTA. Linguagem humana, sem parecer IA.
 
-        whatsapp: `Você é um especialista em vendas pelo WhatsApp para lançamentos digitais.
-Com base no briefing abaixo, escreva 5 MENSAGENS DE WHATSAPP para disparar durante o lançamento:
-- Mensagem 1: Abertura (curiosidade)
-- Mensagem 2: Problema + transformação
-- Mensagem 3: Prova social
-- Mensagem 4: Oferta + bônus
-- Mensagem 5: Último chamado
+BRIEFING:\n${context}`,
 
-Cada mensagem deve ser curta, com emojis e muito engajamento.
+        whatsapp: `Você é especialista em vendas pelo WhatsApp para lançamentos digitais.
+Escreva 5 MENSAGENS DE WHATSAPP para disparar durante o lançamento:
+- Msg 1: Abertura (gerar curiosidade)
+- Msg 2: Problema + transformação
+- Msg 3: Prova social (screenshot de resultados)
+- Msg 4: Oferta + bônus (link direto)
+- Msg 5: Último chamado (FOMO)
 
-BRIEFING:
-Expert: ${briefing.expert_name}
-Produto: ${briefing.product_name}
-Promessa: ${briefing.main_promise}
-Público: ${briefing.target_audience}`,
+Mensagens curtas, com emojis, tom direto e engajante. Máximo 300 caracteres cada.
+
+BRIEFING:\n${context}`,
 
         campaign: `Você é um estrategista de lançamentos digitais.
-Com base no briefing abaixo, crie um PLANO DE CONTEÚDO para as redes sociais durante as 4 semanas de lançamento, incluindo:
+Crie um PLANO DE CONTEÚDO para redes sociais (4 semanas de pré-lançamento):
 - Semana 1: Aquecimento (5 posts)
 - Semana 2: Conteúdo de valor (5 posts)
 - Semana 3: Prova social (5 posts)
 - Semana 4: Abertura de carrinho (5 posts)
 
-Para cada post, informe: Plataforma, Formato, Tema, Texto principal.
+Para cada post: Plataforma (Instagram/YouTube/TikTok), Formato (Reel/Carrossel/Story), Tema, Texto principal.
 
-BRIEFING:
-Expert: ${briefing.expert_name}
-Produto: ${briefing.product_name}
-Promessa: ${briefing.main_promise}
-Público: ${briefing.target_audience}
-Diferencial: ${briefing.differentiation}`,
+BRIEFING:\n${context}`,
     };
 
-    const prompt = prompts[contentType];
+    return prompts[contentType] || '';
+}
+
+// =============================================
+// Google Gemini API (AI Studio)
+// =============================================
+export async function generateWithGemini(briefing: BriefingData, contentType: string): Promise<string> {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) throw new Error('VITE_GEMINI_API_KEY não configurada no .env');
+
+    const prompt = buildPrompt(briefing, contentType);
     if (!prompt) throw new Error('Tipo de conteúdo não reconhecido');
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-            model: 'gpt-4o',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.8,
-            max_tokens: 4000,
-        }),
-    });
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.85,
+                    maxOutputTokens: 8192,
+                    topP: 0.95,
+                },
+            }),
+        }
+    );
 
     if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error?.message || 'Erro na API OpenAI');
+        throw new Error(err.error?.message || `Erro Gemini: ${response.status}`);
     }
 
     const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sem conteúdo gerado';
 }
+
+// Alias mantido para compatibilidade
+export const generateBriefingContent = generateWithGemini;

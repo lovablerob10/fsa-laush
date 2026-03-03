@@ -2,29 +2,37 @@ import { useState } from 'react';
 import {
   LayoutDashboard, Users, Calendar, MessageCircle, FileText, ShoppingCart,
   Settings, ChevronLeft, ChevronRight, Brain, BarChart3, ClipboardList,
-  Target, BookOpen, Sparkles, LogOut
+  Target, BookOpen, Sparkles, LogOut, Bot
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore, useAuthStore } from '@/store';
 import { ClientSwitcher } from '@/components/clients/ClientSwitcher';
 import { useAuth } from '@/hooks/useAuth';
 
-interface NavItem { id: string; label: string; icon: React.ElementType; badge?: number; }
+interface NavItem { id: string; label: string; icon: React.ElementType; badge?: number; section?: string; }
 
 const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'briefing', label: 'Briefing do Expert', icon: ClipboardList },
-  { id: 'timeline', label: 'Timeline 7 Semanas', icon: Calendar },
-  { id: 'actions', label: 'Calendário de Ações', icon: Target },
-  { id: 'crm', label: 'Mini CRM', icon: Users },
-  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-  { id: 'rag', label: 'Dossiê IA', icon: Brain },
-  { id: 'frameworks', label: 'Frameworks & IAs', icon: BookOpen },
-  { id: 'recovery', label: 'Recuperação', icon: ShoppingCart, badge: 0 },
-  { id: 'templates', label: 'Templates', icon: FileText },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'settings', label: 'Configurações', icon: Settings },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'core' },
+  { id: 'briefing', label: 'Briefing do Expert', icon: ClipboardList, section: 'core' },
+  { id: 'timeline', label: 'Timeline 7 Semanas', icon: Calendar, section: 'core' },
+  { id: 'actions', label: 'Calendário de Ações', icon: Target, section: 'core' },
+  { id: 'crm', label: 'Mini CRM', icon: Users, section: 'sales' },
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, section: 'sales' },
+  { id: 'recovery', label: 'Recuperação', icon: ShoppingCart, section: 'sales', badge: 0 },
+  { id: 'rag', label: 'Dossiê IA', icon: Brain, section: 'ai' },
+  { id: 'frameworks', label: 'Frameworks & IAs', icon: BookOpen, section: 'ai' },
+  { id: 'ai-agents', label: 'Equipe IA', icon: Bot, section: 'ai' },
+  { id: 'templates', label: 'Templates', icon: FileText, section: 'tools' },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'tools' },
+  { id: 'settings', label: 'Configurações', icon: Settings, section: 'tools' },
 ];
+
+const sectionLabels: Record<string, string> = {
+  core: 'Lançamento',
+  sales: 'Vendas',
+  ai: 'Inteligência',
+  tools: 'Ferramentas',
+};
 
 export function Sidebar() {
   const { sidebarOpen, toggleSidebar, currentPage, setCurrentPage } = useUIStore();
@@ -32,100 +40,127 @@ export function Sidebar() {
   const { signOut } = useAuth();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
+  const sections = ['core', 'sales', 'ai', 'tools'];
+
   return (
     <aside className={cn(
-      'fixed left-0 top-0 h-screen bg-slate-900 text-white transition-all duration-300 z-50 flex flex-col',
-      sidebarOpen ? 'w-64' : 'w-16'
+      'fixed left-0 top-0 h-screen transition-all duration-300 z-50 flex flex-col',
+      'bg-[hsl(222,47%,6%)] border-r border-slate-800/60',
+      sidebarOpen ? 'w-64' : 'w-[68px]'
     )}>
       {/* Logo */}
-      <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800 flex-shrink-0">
+      <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800/60 flex-shrink-0">
         {sidebarOpen ? (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-lg flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/20 neon-glow">
+              <Sparkles className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="font-semibold text-sm">Launch Lab Pro</span>
+            <div>
+              <span className="font-bold text-sm text-white tracking-tight">Launch Lab</span>
+              <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 font-semibold">PRO</span>
+            </div>
           </div>
         ) : (
-          <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-lg flex items-center justify-center mx-auto">
-            <Sparkles className="w-4 h-4 text-white" />
+          <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-xl flex items-center justify-center mx-auto shadow-lg shadow-violet-500/20 neon-glow">
+            <Sparkles className="w-4.5 h-4.5 text-white" />
           </div>
         )}
         <button
           onClick={toggleSidebar}
-          className={cn('p-1 rounded-lg hover:bg-slate-800 transition-colors', !sidebarOpen && 'hidden')}
+          className={cn('p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors text-slate-500 hover:text-slate-300', !sidebarOpen && 'hidden')}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Toggle quando collapsed */}
+      {/* Toggle collapsed */}
       {!sidebarOpen && (
-        <button
-          onClick={toggleSidebar}
-          className="absolute -right-3 top-20 w-6 h-6 bg-violet-500 rounded-full flex items-center justify-center shadow-lg"
-        >
+        <button onClick={toggleSidebar}
+          className="absolute -right-3 top-20 w-6 h-6 bg-violet-600 rounded-full flex items-center justify-center shadow-lg shadow-violet-500/30 hover:bg-violet-500 transition-colors">
           <ChevronRight className="w-3 h-3 text-white" />
         </button>
       )}
 
-      {/* Client Switcher — só aparece quando sidebar aberta */}
+      {/* Client Switcher */}
       {sidebarOpen && (
-        <div className="flex-shrink-0 py-2 border-b border-slate-800">
+        <div className="flex-shrink-0 py-2 border-b border-slate-800/60">
           <ClientSwitcher />
         </div>
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentPage === item.id;
-          const isHovered = hoveredItem === item.id;
-
+      <nav className="flex-1 py-3 overflow-y-auto">
+        {sections.map(section => {
+          const items = navItems.filter(i => i.section === section);
           return (
-            <button
-              key={item.id}
-              onClick={() => setCurrentPage(item.id)}
-              onMouseEnter={() => setHoveredItem(item.id)}
-              onMouseLeave={() => setHoveredItem(null)}
-              className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative',
-                isActive ? 'bg-violet-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white',
-                !sidebarOpen && 'justify-center px-2'
+            <div key={section} className="mb-2">
+              {sidebarOpen && (
+                <p className="px-4 pt-2 pb-1.5 text-[10px] font-bold text-slate-600 uppercase tracking-[0.15em]">
+                  {sectionLabels[section]}
+                </p>
               )}
-            >
-              <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-white')} />
-              {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
-              {item.badge !== undefined && item.badge > 0 && (
-                <span className={cn('bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full', !sidebarOpen && 'absolute -top-1 -right-1')}>
-                  {item.badge}
-                </span>
-              )}
-              {!sidebarOpen && isHovered && (
-                <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                  {item.label}
-                </div>
-              )}
-            </button>
+              <div className={cn('space-y-0.5', sidebarOpen ? 'px-2' : 'px-1.5')}>
+                {items.map(item => {
+                  const Icon = item.icon;
+                  const isActive = currentPage === item.id;
+                  const isHovered = hoveredItem === item.id;
+
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setCurrentPage(item.id)}
+                      onMouseEnter={() => setHoveredItem(item.id)}
+                      onMouseLeave={() => setHoveredItem(null)}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 relative group',
+                        isActive
+                          ? 'bg-violet-600/15 text-violet-300 border border-violet-500/20'
+                          : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300 border border-transparent',
+                        !sidebarOpen && 'justify-center px-2'
+                      )}
+                    >
+                      {isActive && (
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-violet-500 rounded-r-full" />
+                      )}
+                      <Icon className={cn('w-[18px] h-[18px] flex-shrink-0 transition-colors', isActive && 'text-violet-400')} />
+                      {sidebarOpen && <span className="text-[13px] font-medium truncate">{item.label}</span>}
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span className={cn('bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center', !sidebarOpen && 'absolute -top-1 -right-1')}>
+                          {item.badge}
+                        </span>
+                      )}
+                      {!sidebarOpen && isHovered && (
+                        <div className="absolute left-full ml-3 px-3 py-1.5 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap z-50 shadow-xl border border-slate-700/50">
+                          {item.label}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </nav>
 
-      {/* User info + Logout */}
-      {sidebarOpen && user && (
-        <div className="flex-shrink-0 p-4 border-t border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center flex-shrink-0">
+      {/* User */}
+      {user && (
+        <div className={cn('flex-shrink-0 border-t border-slate-800/60', sidebarOpen ? 'p-3' : 'p-2')}>
+          <div className={cn('flex items-center', sidebarOpen ? 'gap-3' : 'justify-center')}>
+            <div className="w-9 h-9 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow shadow-emerald-500/20">
               <span className="text-white text-xs font-bold">{user.name?.charAt(0).toUpperCase()}</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{user.name}</p>
-              <p className="text-xs text-slate-400 truncate">{user.email}</p>
-            </div>
-            <button onClick={signOut} title="Sair" className="text-slate-500 hover:text-red-400 transition-colors">
-              <LogOut className="w-4 h-4" />
-            </button>
+            {sidebarOpen && (
+              <>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-slate-200 truncate">{user.name}</p>
+                  <p className="text-[11px] text-slate-600 truncate">{user.email}</p>
+                </div>
+                <button onClick={signOut} title="Sair" className="text-slate-600 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-red-500/10">
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
