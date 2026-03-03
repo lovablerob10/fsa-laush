@@ -1,30 +1,15 @@
 import { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Calendar, 
-  MessageCircle, 
-  FileText, 
-  ShoppingCart,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  Brain,
-  BarChart3,
-  ClipboardList,
-  Target,
-  BookOpen,
-  Sparkles
+import {
+  LayoutDashboard, Users, Calendar, MessageCircle, FileText, ShoppingCart,
+  Settings, ChevronLeft, ChevronRight, Brain, BarChart3, ClipboardList,
+  Target, BookOpen, Sparkles, LogOut
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore, useAuthStore } from '@/store';
+import { ClientSwitcher } from '@/components/clients/ClientSwitcher';
+import { useAuth } from '@/hooks/useAuth';
 
-interface NavItem {
-  id: string;
-  label: string;
-  icon: React.ElementType;
-  badge?: number;
-}
+interface NavItem { id: string; label: string; icon: React.ElementType; badge?: number; }
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -44,17 +29,16 @@ const navItems: NavItem[] = [
 export function Sidebar() {
   const { sidebarOpen, toggleSidebar, currentPage, setCurrentPage } = useUIStore();
   const { user } = useAuthStore();
+  const { signOut } = useAuth();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
   return (
-    <aside
-      className={cn(
-        'fixed left-0 top-0 h-screen bg-slate-900 text-white transition-all duration-300 z-50',
-        sidebarOpen ? 'w-64' : 'w-16'
-      )}
-    >
+    <aside className={cn(
+      'fixed left-0 top-0 h-screen bg-slate-900 text-white transition-all duration-300 z-50 flex flex-col',
+      sidebarOpen ? 'w-64' : 'w-16'
+    )}>
       {/* Logo */}
-      <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
+      <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800 flex-shrink-0">
         {sidebarOpen ? (
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-lg flex items-center justify-center">
@@ -67,19 +51,15 @@ export function Sidebar() {
             <Sparkles className="w-4 h-4 text-white" />
           </div>
         )}
-        
         <button
           onClick={toggleSidebar}
-          className={cn(
-            'p-1 rounded-lg hover:bg-slate-800 transition-colors',
-            !sidebarOpen && 'hidden'
-          )}
+          className={cn('p-1 rounded-lg hover:bg-slate-800 transition-colors', !sidebarOpen && 'hidden')}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Toggle button when collapsed */}
+      {/* Toggle quando collapsed */}
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
@@ -89,8 +69,15 @@ export function Sidebar() {
         </button>
       )}
 
+      {/* Client Switcher — só aparece quando sidebar aberta */}
+      {sidebarOpen && (
+        <div className="flex-shrink-0 py-2 border-b border-slate-800">
+          <ClientSwitcher />
+        </div>
+      )}
+
       {/* Navigation */}
-      <nav className="p-2 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 140px)' }}>
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentPage === item.id;
@@ -104,29 +91,17 @@ export function Sidebar() {
               onMouseLeave={() => setHoveredItem(null)}
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative',
-                isActive 
-                  ? 'bg-violet-600 text-white' 
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white',
+                isActive ? 'bg-violet-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white',
                 !sidebarOpen && 'justify-center px-2'
               )}
             >
               <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-white')} />
-              
-              {sidebarOpen && (
-                <span className="text-sm font-medium truncate">{item.label}</span>
-              )}
-
-              {/* Badge */}
+              {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
               {item.badge !== undefined && item.badge > 0 && (
-                <span className={cn(
-                  'bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full',
-                  !sidebarOpen && 'absolute -top-1 -right-1'
-                )}>
+                <span className={cn('bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full', !sidebarOpen && 'absolute -top-1 -right-1')}>
                   {item.badge}
                 </span>
               )}
-
-              {/* Tooltip when collapsed */}
               {!sidebarOpen && isHovered && (
                 <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap z-50">
                   {item.label}
@@ -137,19 +112,20 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* User info at bottom */}
+      {/* User info + Logout */}
       {sidebarOpen && user && (
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800">
+        <div className="flex-shrink-0 p-4 border-t border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-bold">
-                {user.name?.charAt(0).toUpperCase()}
-              </span>
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-xs font-bold">{user.name?.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.name}</p>
               <p className="text-xs text-slate-400 truncate">{user.email}</p>
             </div>
+            <button onClick={signOut} title="Sair" className="text-slate-500 hover:text-red-400 transition-colors">
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

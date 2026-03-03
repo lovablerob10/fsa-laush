@@ -1,832 +1,476 @@
-import { useState, useEffect } from 'react';
-import { 
-  User, 
-  Target, 
-  FileText, 
-  MessageSquare, 
-  Save, 
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  ChevronRight,
-  ChevronLeft,
-  Upload,
-  Building2
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Save, Sparkles, Loader2, ChevronRight, ChevronLeft, Check, Plus, X,
+  User, Package, Target, Lightbulb, Palette, BookOpen, Wand2
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuthStore } from '@/store';
+import { briefingService, generateBriefingContent, BriefingData } from '@/lib/services/briefingService';
 import { cn } from '@/lib/utils';
 
-interface BriefingData {
-  tenant_id: string;
-  // Dados do Expert
-  expertName: string;
-  expertBio: string;
-  expertPhoto: string;
-  expertCredentials: string[];
-  
-  // Dados do Produto
-  productName: string;
-  productDescription: string;
-  productPrice: string;
-  productInstallments: string;
-  productBonuses: string[];
-  productGuarantee: string;
-  
-  // Público-Alvo
-  targetAudience: string;
-  audiencePainPoints: string[];
-  audienceDesires: string[];
-  audienceObjections: string[];
-  
-  // Proposta de Valor
-  mainPromise: string;
-  mainBenefit: string;
-  differentiation: string;
-  
-  // Tom de Voz
-  voiceTone: string[];
-  wordsToUse: string[];
-  wordsToAvoid: string[];
-  
-  // Frameworks
-  frameworkPage: string;
-  frameworkEmail: string;
-  frameworkWhatsApp: string;
+const STEPS = [
+  { id: 1, title: 'Dados do Expert', icon: User, desc: 'Quem está vendendo' },
+  { id: 2, title: 'O Produto', icon: Package, desc: 'O que está sendo vendido' },
+  { id: 3, title: 'Público-Alvo', icon: Target, desc: 'Para quem é' },
+  { id: 4, title: 'Promessa Central', icon: Lightbulb, desc: 'Por que comprar' },
+  { id: 5, title: 'Identidade de Marca', icon: Palette, desc: 'Como comunicar' },
+  { id: 6, title: 'Gerar Conteúdo IA', icon: Sparkles, desc: 'IA cria o material' },
+];
+
+function TagInput({ label, values, onChange, placeholder }: {
+  label: string; values: string[]; onChange: (v: string[]) => void; placeholder?: string;
+}) {
+  const [input, setInput] = useState('');
+  function add() {
+    const val = input.trim();
+    if (val && !values.includes(val)) { onChange([...values, val]); setInput(''); }
+  }
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-700 mb-2">{label}</label>
+      <div className="flex gap-2 mb-2">
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
+          placeholder={placeholder || 'Digite e pressione Enter'}
+          className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all" />
+        <button type="button" onClick={add}
+          className="px-3 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors">
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {values.map((v, i) => (
+          <span key={i} className="flex items-center gap-1 px-2.5 py-1 bg-violet-50 text-violet-700 rounded-full text-xs font-medium border border-violet-200">
+            {v}
+            <button onClick={() => onChange(values.filter((_, j) => j !== i))}>
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-const INITIAL_DATA: BriefingData = {
-  tenant_id: '',
-  expertName: '',
-  expertBio: '',
-  expertPhoto: '',
-  expertCredentials: [],
-  productName: '',
-  productDescription: '',
-  productPrice: '',
-  productInstallments: '12',
-  productBonuses: [],
-  productGuarantee: '7 dias',
-  targetAudience: '',
-  audiencePainPoints: [],
-  audienceDesires: [],
-  audienceObjections: [],
-  mainPromise: '',
-  mainBenefit: '',
-  differentiation: '',
-  voiceTone: [],
-  wordsToUse: [],
-  wordsToAvoid: [],
-  frameworkPage: 'padrao',
-  frameworkEmail: 'padrao',
-  frameworkWhatsApp: 'padrao',
-};
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-sm font-medium text-slate-700">{label}</label>
+      {children}
+    </div>
+  );
+}
 
-const VOICE_TONES = [
-  { id: 'autoritario', label: 'Autoritário', description: 'Posiciona o expert como autoridade' },
-  { id: 'amigavel', label: 'Amigável', description: 'Tom conversacional e próximo' },
-  { id: 'urgente', label: 'Urgente', description: 'Cria senso de urgência' },
-  { id: 'inspirador', label: 'Inspirador', description: 'Motiva e inspira ação' },
-  { id: 'direto', label: 'Direto', description: 'Vai direto ao ponto' },
-  { id: 'emocional', label: 'Emocional', description: 'Conecta com emoções' },
-];
-
-const FRAMEWORKS_PAGE = [
-  { id: 'padrao', label: 'Padrão Launch Lab', description: 'Estrutura comprovada de 12 seções' },
-  { id: 'vsl', label: 'VSL (Video Sales Letter)', description: 'Página focada em vídeo de vendas' },
-  { id: 'texto', label: 'Página de Texto Longo', description: 'Copy extensa e persuasiva' },
-  { id: 'webinar', label: 'Webinar', description: 'Página de inscrição para webinar' },
-  { id: 'desafio', label: 'Desafio', description: 'Página de desafio de X dias' },
-];
+const inputCls = "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all bg-white";
 
 export function ExpertBriefing() {
-  const { tenant } = useAuthStore();
-  const [data, setData] = useState<BriefingData>(INITIAL_DATA);
-  const [currentStep, setCurrentStep] = useState(1);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedContent, setGeneratedContent] = useState<any>(null);
-  const [savedBriefings, setSavedBriefings] = useState<any[]>([]);
+  const { activeTenant } = useAuthStore() as any;
+  const tenantId = activeTenant?.id;
 
-  // Inicializa com tenant_id
+  const [step, setStep] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [generatedContent, setGeneratedContent] = useState<Record<string, string>>({});
+  const [apiKey, setApiKey] = useState('');
+  const [showApiInput, setShowApiInput] = useState(false);
+
+  const [data, setData] = useState<BriefingData>({
+    tenant_id: tenantId || '',
+    expert_name: '', expert_bio: '', expert_photo_url: '', expert_credentials: [],
+    product_name: '', product_description: '', product_price: undefined,
+    product_installments: 12, product_bonuses: [], product_guarantee: '7 dias',
+    target_audience: '', audience_pain_points: [], audience_desires: [], audience_objections: [],
+    main_promise: '', main_benefit: '', differentiation: '',
+    voice_tones: [], words_to_use: [], words_to_avoid: [],
+    framework_page: 'padrao', framework_email: 'padrao', framework_whatsapp: 'padrao',
+    status: 'draft',
+  });
+
+  // Carrega briefing do tenant ativo
   useEffect(() => {
-    if (tenant?.id) {
-      setData(prev => ({ ...prev, tenant_id: tenant.id }));
-      // Aqui você carregaria os briefings salvos deste tenant
-      loadSavedBriefings(tenant.id);
-    }
-  }, [tenant?.id]);
-
-  const loadSavedBriefings = async (tenantId: string) => {
-    // Simulação - em produção, buscaria do Supabase
-    // const { data: briefings } = await supabase
-    //   .from('briefings')
-    //   .select('*')
-    //   .eq('tenant_id', tenantId);
-    console.log(`Carregando briefings do tenant: ${tenantId}`);
-  };
-
-  const totalSteps = 6;
-  const progress = (currentStep / totalSteps) * 100;
-
-  const updateField = (field: keyof BriefingData, value: any) => {
-    setData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const addArrayItem = (field: keyof BriefingData, item: string) => {
-    if (!item.trim()) return;
-    setData(prev => ({
-      ...prev,
-      [field]: [...(prev[field] as string[]), item.trim()]
-    }));
-  };
-
-  const removeArrayItem = (field: keyof BriefingData, index: number) => {
-    setData(prev => ({
-      ...prev,
-      [field]: (prev[field] as string[]).filter((_, i) => i !== index)
-    }));
-  };
-
-  const handleSave = async () => {
-    // Salva o briefing no Supabase vinculado ao tenant
-    // await supabase.from('briefings').insert({ ...data, tenant_id: tenant?.id });
-    alert(`Briefing salvo para o cliente: ${tenant?.name}`);
-  };
-
-  const handleGenerate = async () => {
-    if (!tenant?.id) {
-      alert('Selecione um cliente primeiro');
-      return;
-    }
-
-    setIsGenerating(true);
-    // Simula geração usando os frameworks do tenant
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    setGeneratedContent({
-      page: `Página de vendas gerada para ${data.productName}`,
-      emails: [
-        `E-mail 1 - Aquecimento (${tenant?.name})`,
-        `E-mail 2 - Contexto (${tenant?.name})`,
-        `E-mail 3 - Solução (${tenant?.name})`,
-      ],
-      whatsapp: `Scripts WhatsApp para ${data.expertName}`,
-      calendar: `Calendário personalizado - ${tenant?.name}`,
+    if (!tenantId) return;
+    setData(d => ({ ...d, tenant_id: tenantId }));
+    briefingService.fetchByTenant(tenantId).then(b => {
+      if (b) setData(b);
     });
-    
-    setIsGenerating(false);
-  };
+  }, [tenantId]);
 
-  const renderStep = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold">Dados do Expert</h3>
-              <p className="text-slate-500">Informações sobre quem está vendendo</p>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <Label>Nome Completo do Expert</Label>
-                <Input 
-                  placeholder="Ex: João Silva"
-                  value={data.expertName}
-                  onChange={(e) => updateField('expertName', e.target.value)}
-                />
-              </div>
-              
-              <div>
-                <Label>Biografia/Bio do Expert</Label>
-                <Textarea 
-                  placeholder="Conte a história do expert, credenciais, resultados..."
-                  value={data.expertBio}
-                  onChange={(e) => updateField('expertBio', e.target.value)}
-                  rows={4}
-                />
-              </div>
-              
-              <div>
-                <Label>Foto do Expert</Label>
-                <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500">Arraste uma foto ou clique para upload</p>
-                </div>
-              </div>
-              
-              <div>
-                <Label>Credenciais/Certificações</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: MBA em Marketing"
-                    id="credential-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('expertCredentials', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('credential-input') as HTMLInputElement;
-                      addArrayItem('expertCredentials', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.expertCredentials.map((cred, i) => (
-                    <Badge key={i} variant="secondary" className="cursor-pointer" onClick={() => removeArrayItem('expertCredentials', i)}>
-                      {cred} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 2:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold">Dados do Produto</h3>
-              <p className="text-slate-500">O que está sendo vendido</p>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <Label>Nome do Produto</Label>
-                <Input 
-                  placeholder="Ex: Método XYZ Completo"
-                  value={data.productName}
-                  onChange={(e) => updateField('productName', e.target.value)}
-                />
-              </div>
-              
-              <div>
-                <Label>Descrição do Produto</Label>
-                <Textarea 
-                  placeholder="Descreva o que o produto entrega, módulos, conteúdo..."
-                  value={data.productDescription}
-                  onChange={(e) => updateField('productDescription', e.target.value)}
-                  rows={4}
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Preço (R$)</Label>
-                  <Input 
-                    placeholder="1997"
-                    value={data.productPrice}
-                    onChange={(e) => updateField('productPrice', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label>Parcelas</Label>
-                  <Input 
-                    placeholder="12"
-                    value={data.productInstallments}
-                    onChange={(e) => updateField('productInstallments', e.target.value)}
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <Label>Garantia</Label>
-                <Input 
-                  placeholder="Ex: 7 dias de garantia incondicional"
-                  value={data.productGuarantee}
-                  onChange={(e) => updateField('productGuarantee', e.target.value)}
-                />
-              </div>
-              
-              <div>
-                <Label>Bônus Inclusos</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: E-book exclusivo"
-                    id="bonus-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('productBonuses', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('bonus-input') as HTMLInputElement;
-                      addArrayItem('productBonuses', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.productBonuses.map((bonus, i) => (
-                    <Badge key={i} variant="secondary" className="cursor-pointer" onClick={() => removeArrayItem('productBonuses', i)}>
-                      {bonus} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 3:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold">Público-Alvo</h3>
-              <p className="text-slate-500">Quem é o cliente ideal</p>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <Label>Descrição do Público-Alvo</Label>
-                <Textarea 
-                  placeholder="Descreva o perfil do cliente ideal: idade, profissão, renda, interesses..."
-                  value={data.targetAudience}
-                  onChange={(e) => updateField('targetAudience', e.target.value)}
-                  rows={3}
-                />
-              </div>
-              
-              <div>
-                <Label>Principais Dores</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: Não consegue aumentar vendas"
-                    id="pain-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('audiencePainPoints', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('pain-input') as HTMLInputElement;
-                      addArrayItem('audiencePainPoints', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.audiencePainPoints.map((pain, i) => (
-                    <Badge key={i} variant="destructive" className="cursor-pointer" onClick={() => removeArrayItem('audiencePainPoints', i)}>
-                      {pain} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <Label>Principais Desejos</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: Quer ter liberdade financeira"
-                    id="desire-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('audienceDesires', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('desire-input') as HTMLInputElement;
-                      addArrayItem('audienceDesires', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.audienceDesires.map((desire, i) => (
-                    <Badge key={i} variant="default" className="cursor-pointer bg-emerald-500" onClick={() => removeArrayItem('audienceDesires', i)}>
-                      {desire} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <Label>Objeções Comuns</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: 'É muito caro'"
-                    id="objection-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('audienceObjections', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('objection-input') as HTMLInputElement;
-                      addArrayItem('audienceObjections', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.audienceObjections.map((obj, i) => (
-                    <Badge key={i} variant="outline" className="cursor-pointer" onClick={() => removeArrayItem('audienceObjections', i)}>
-                      {obj} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 4:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold">Proposta de Valor</h3>
-              <p className="text-slate-500">A promessa principal do produto</p>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <Label>Promessa Principal (Headline)</Label>
-                <Textarea 
-                  placeholder="Ex: Descubra como aumentar suas vendas em 300% em 90 dias..."
-                  value={data.mainPromise}
-                  onChange={(e) => updateField('mainPromise', e.target.value)}
-                  rows={2}
-                />
-              </div>
-              
-              <div>
-                <Label>Benefício Principal</Label>
-                <Textarea 
-                  placeholder="Qual é o resultado principal que o cliente vai obter?"
-                  value={data.mainBenefit}
-                  onChange={(e) => updateField('mainBenefit', e.target.value)}
-                  rows={2}
-                />
-              </div>
-              
-              <div>
-                <Label>Diferencial Competitivo</Label>
-                <Textarea 
-                  placeholder="Por que o cliente deve escolher você ao invés da concorrência?"
-                  value={data.differentiation}
-                  onChange={(e) => updateField('differentiation', e.target.value)}
-                  rows={2}
-                />
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 5:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold">Tom de Voz</h3>
-              <p className="text-slate-500">Como a marca deve se comunicar</p>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <Label>Tom de Voz Principal</Label>
-                <div className="grid grid-cols-2 gap-3 mt-2">
-                  {VOICE_TONES.map((tone) => (
-                    <button
-                      key={tone.id}
-                      onClick={() => {
-                        const newTones = data.voiceTone.includes(tone.id)
-                          ? data.voiceTone.filter(t => t !== tone.id)
-                          : [...data.voiceTone, tone.id];
-                        updateField('voiceTone', newTones);
-                      }}
-                      className={cn(
-                        'p-3 rounded-lg border-2 text-left transition-all',
-                        data.voiceTone.includes(tone.id)
-                          ? 'border-violet-500 bg-violet-50'
-                          : 'border-slate-200 hover:border-violet-300'
-                      )}
-                    >
-                      <span className="font-medium">{tone.label}</span>
-                      <p className="text-xs text-slate-500">{tone.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <Label>Palavras/Frases para Usar</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: Resultado garantido"
-                    id="word-use-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('wordsToUse', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('word-use-input') as HTMLInputElement;
-                      addArrayItem('wordsToUse', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.wordsToUse.map((word, i) => (
-                    <Badge key={i} className="bg-emerald-100 text-emerald-700 cursor-pointer" onClick={() => removeArrayItem('wordsToUse', i)}>
-                      {word} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              
-              <div>
-                <Label>Palavras/Frases para EVITAR</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input 
-                    placeholder="Ex: Compre agora (muito agressivo)"
-                    id="word-avoid-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        addArrayItem('wordsToAvoid', (e.target as HTMLInputElement).value);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }}
-                  />
-                  <Button 
-                    variant="outline"
-                    onClick={() => {
-                      const input = document.getElementById('word-avoid-input') as HTMLInputElement;
-                      addArrayItem('wordsToAvoid', input.value);
-                      input.value = '';
-                    }}
-                  >
-                    Adicionar
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.wordsToAvoid.map((word, i) => (
-                    <Badge key={i} variant="destructive" className="cursor-pointer" onClick={() => removeArrayItem('wordsToAvoid', i)}>
-                      {word} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 6:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold">Frameworks</h3>
-              <p className="text-slate-500">Escolha os frameworks para geração</p>
-            </div>
-            
-            <div className="space-y-6">
-              <div>
-                <Label>Framework para Página de Vendas</Label>
-                <div className="space-y-2 mt-2">
-                  {FRAMEWORKS_PAGE.map((fw) => (
-                    <button
-                      key={fw.id}
-                      onClick={() => updateField('frameworkPage', fw.id)}
-                      className={cn(
-                        'w-full p-3 rounded-lg border-2 text-left transition-all',
-                        data.frameworkPage === fw.id
-                          ? 'border-violet-500 bg-violet-50'
-                          : 'border-slate-200 hover:border-violet-300'
-                      )}
-                    >
-                      <span className="font-medium">{fw.label}</span>
-                      <p className="text-xs text-slate-500">{fw.description}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-amber-800">Frameworks Personalizados</p>
-                    <p className="text-sm text-amber-700">
-                      Você pode carregar seus próprios frameworks na aba "Frameworks & IAs". 
-                      Cada cliente pode ter seus frameworks exclusivos.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      default:
-        return null;
+  const set = useCallback((field: keyof BriefingData, value: any) => {
+    setData(d => ({ ...d, [field]: value }));
+  }, []);
+
+  async function handleSave(approve = false) {
+    if (!tenantId) return;
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      const toSave = { ...data, tenant_id: tenantId, status: approve ? 'approved' as const : data.status };
+      const saved = await briefingService.save(toSave);
+      if (saved) setData(saved);
+      setSaveMsg(approve ? '✅ Briefing aprovado!' : '✅ Rascunho salvo!');
+    } catch (err: any) {
+      setSaveMsg(`❌ ${err.message}`);
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(''), 3000);
     }
-  };
+  }
+
+  async function handleGenerate(type: string) {
+    if (!apiKey) { setShowApiInput(true); return; }
+    setGenerating(type);
+    try {
+      const content = await generateBriefingContent({ ...data, __apiKey: apiKey } as any, type);
+      setGeneratedContent(prev => ({ ...prev, [type]: content }));
+    } catch (err: any) {
+      alert('Erro ao gerar: ' + err.message);
+    } finally {
+      setGenerating(null);
+    }
+  }
+
+  const progress = (step / STEPS.length) * 100;
+
+  if (!tenantId) {
+    return (
+      <div className="p-8 text-center">
+        <div className="w-16 h-16 bg-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Target className="w-8 h-8 text-violet-600" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-800 mb-2">Selecione um cliente</h2>
+        <p className="text-slate-500">Use o seletor na sidebar para escolher com qual cliente deseja trabalhar.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header com identificação do cliente */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Briefing do Expert</h1>
-          <p className="text-slate-500">Preencha as informações para gerar páginas e copies</p>
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="px-6 py-4 flex items-center justify-between max-w-5xl mx-auto">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Briefing do Expert</h1>
+            <p className="text-slate-500 text-sm">Cliente: <span className="text-violet-600 font-semibold">{activeTenant?.name}</span></p>
+          </div>
+          <div className="flex items-center gap-4">
+            {saveMsg && <span className="text-sm font-medium text-slate-700">{saveMsg}</span>}
+            <div className="text-sm text-slate-500 hidden md:block">
+              Etapa {step} de {STEPS.length}
+            </div>
+            {/* Progress bar */}
+            <div className="hidden md:flex items-center gap-2">
+              <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div className="h-2 bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all duration-500"
+                  style={{ width: `${progress}%` }} />
+              </div>
+              <span className="text-xs text-slate-500">{Math.round(progress)}%</span>
+            </div>
+            <button onClick={() => handleSave()} disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 transition-all">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          {tenant && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-violet-100 rounded-lg">
-              <Building2 className="w-4 h-4 text-violet-600" />
-              <span className="text-sm font-medium text-violet-700">{tenant.name}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-500">Passo {currentStep} de {totalSteps}</span>
-            <div className="w-32">
-              <Progress value={progress} className="h-2" />
-            </div>
+
+        {/* Step indicator */}
+        <div className="px-6 pb-3 max-w-5xl mx-auto">
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {STEPS.map(s => {
+              const Icon = s.icon;
+              return (
+                <button key={s.id} onClick={() => setStep(s.id)}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all',
+                    step === s.id ? 'bg-violet-100 text-violet-700' : 'text-slate-500 hover:bg-slate-100'
+                  )}>
+                  <Icon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{s.title}</span>
+                  <span className="sm:hidden">{s.id}</span>
+                  {s.id < step && <Check className="w-3 h-3 text-emerald-500" />}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {!generatedContent ? (
-        <>
-          <Card className="max-w-2xl mx-auto">
-            <CardContent className="p-6">
-              {renderStep()}
-            </CardContent>
-          </Card>
+      {/* Content */}
+      <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
 
-          {/* Navigation */}
-          <div className="flex justify-between max-w-2xl mx-auto">
-            <Button
-              variant="outline"
-              onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
-              disabled={currentStep === 1}
-            >
-              <ChevronLeft className="w-4 h-4 mr-2" />
-              Anterior
-            </Button>
-            
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={handleSave}
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Salvar Rascunho
-              </Button>
-              
-              {currentStep < totalSteps ? (
-                <Button
-                  onClick={() => setCurrentStep(Math.min(totalSteps, currentStep + 1))}
-                  className="bg-violet-600 hover:bg-violet-700"
-                >
-                  Próximo
-                  <ChevronRight className="w-4 h-4 ml-2" />
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleGenerate}
-                  disabled={isGenerating || !tenant?.id}
-                  className="bg-emerald-600 hover:bg-emerald-700"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Sparkles className="w-4 h-4 mr-2 animate-spin" />
-                      Gerando...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Gerar Conteúdo
-                    </>
-                  )}
-                </Button>
-              )}
+        {/* ===== ETAPA 1: EXPERT ===== */}
+        {step === 1 && (
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 space-y-5">
+            <div className="border-b pb-4 mb-6">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <User className="w-5 h-5 text-violet-600" /> Dados do Expert
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">Informações sobre quem está vendendo</p>
             </div>
+            <Field label="Nome Completo do Expert *">
+              <input value={data.expert_name || ''} onChange={e => set('expert_name', e.target.value)}
+                placeholder="Ex: João Silva" className={inputCls} />
+            </Field>
+            <Field label="Biografia / História do Expert *">
+              <textarea value={data.expert_bio || ''} onChange={e => set('expert_bio', e.target.value)}
+                rows={5} placeholder="Conte a trajetória, conquistas, credibilidade e resultados..."
+                className={cn(inputCls, 'resize-none')} />
+            </Field>
+            <Field label="URL da Foto do Expert">
+              <input value={data.expert_photo_url || ''} onChange={e => set('expert_photo_url', e.target.value)}
+                placeholder="https://exemplo.com/foto.jpg" type="url" className={inputCls} />
+              {data.expert_photo_url && (
+                <img src={data.expert_photo_url} alt="Expert" className="w-16 h-16 rounded-full object-cover mt-2 border-2 border-violet-200" />
+              )}
+            </Field>
+            <TagInput label="Credenciais / Certificações"
+              values={data.expert_credentials || []}
+              onChange={v => set('expert_credentials', v)}
+              placeholder="Ex: MBA em Marketing → Enter" />
           </div>
-        </>
-      ) : (
-        <div className="space-y-6">
-          <div className="text-center">
-            <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-slate-900">Conteúdo Gerado!</h2>
-            <p className="text-slate-500">Revise e aprove os materiais gerados para {tenant?.name}</p>
+        )}
+
+        {/* ===== ETAPA 2: PRODUTO ===== */}
+        {step === 2 && (
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 space-y-5">
+            <div className="border-b pb-4 mb-6">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Package className="w-5 h-5 text-violet-600" /> O Produto
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">O que está sendo vendido</p>
+            </div>
+            <Field label="Nome do Produto *">
+              <input value={data.product_name || ''} onChange={e => set('product_name', e.target.value)}
+                placeholder="Ex: Método Corpo Transformado" className={inputCls} />
+            </Field>
+            <Field label="Descrição do Produto *">
+              <textarea value={data.product_description || ''} onChange={e => set('product_description', e.target.value)}
+                rows={4} placeholder="O que o cliente vai receber? Formato, módulos, duração..."
+                className={cn(inputCls, 'resize-none')} />
+            </Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Preço (R$) *">
+                <input type="number" value={data.product_price || ''} onChange={e => set('product_price', parseFloat(e.target.value))}
+                  placeholder="997.00" className={inputCls} />
+              </Field>
+              <Field label="Parcelas">
+                <select value={data.product_installments || 12} onChange={e => set('product_installments', parseInt(e.target.value))} className={inputCls}>
+                  {[1, 2, 3, 4, 6, 8, 10, 12].map(n => <option key={n} value={n}>{n}x</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Garantia">
+              <select value={data.product_guarantee || '7 dias'} onChange={e => set('product_guarantee', e.target.value)} className={inputCls}>
+                {['7 dias', '15 dias', '30 dias', '60 dias', '90 dias'].map(g => <option key={g}>{g}</option>)}
+              </select>
+            </Field>
+            <TagInput label="Bônus" values={data.product_bonuses || []}
+              onChange={v => set('product_bonuses', v)}
+              placeholder="Ex: Lives ao vivo → Enter" />
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto">
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-violet-100 rounded-lg flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-violet-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Página de Vendas</h3>
-                    <p className="text-sm text-slate-500">HTML completo pronto</p>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full">Ver Página</Button>
-              </CardContent>
-            </Card>
-            
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <MessageSquare className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Sequência de E-mails</h3>
-                    <p className="text-sm text-slate-500">7 e-mails de nutrição</p>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full">Ver E-mails</Button>
-              </CardContent>
-            </Card>
-            
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-                    <MessageSquare className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Scripts WhatsApp</h3>
-                    <p className="text-sm text-slate-500">Mensagens de recuperação</p>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full">Ver Scripts</Button>
-              </CardContent>
-            </Card>
-            
-            <Card className="hover:shadow-lg transition-shadow cursor-pointer">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-                    <Target className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Calendário de Ações</h3>
-                    <p className="text-sm text-slate-500">O que fazer cada dia</p>
-                  </div>
-                </div>
-                <Button variant="outline" className="w-full">Ver Calendário</Button>
-              </CardContent>
-            </Card>
+        )}
+
+        {/* ===== ETAPA 3: PÚBLICO ===== */}
+        {step === 3 && (
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 space-y-5">
+            <div className="border-b pb-4 mb-6">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Target className="w-5 h-5 text-violet-600" /> Público-Alvo
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">Para quem é esse produto</p>
+            </div>
+            <Field label="Descrição do Público-Alvo *">
+              <textarea value={data.target_audience || ''} onChange={e => set('target_audience', e.target.value)}
+                rows={3} placeholder="Mulheres de 30-50 anos, que trabalham mas não têm tempo para academia..."
+                className={cn(inputCls, 'resize-none')} />
+            </Field>
+            <TagInput label="🔥 Principais Dores" values={data.audience_pain_points || []}
+              onChange={v => set('audience_pain_points', v)}
+              placeholder="Ex: Não consigo emagrecer → Enter" />
+            <TagInput label="✨ Desejos e Sonhos" values={data.audience_desires || []}
+              onChange={v => set('audience_desires', v)}
+              placeholder="Ex: Ter autoestima de volta → Enter" />
+            <TagInput label="🚧 Objeções" values={data.audience_objections || []}
+              onChange={v => set('audience_objections', v)}
+              placeholder="Ex: Já tentei de tudo → Enter" />
           </div>
-          
-          <div className="text-center">
-            <Button variant="outline" onClick={() => setGeneratedContent(null)}>
-              Voltar e Editar Briefing
-            </Button>
+        )}
+
+        {/* ===== ETAPA 4: PROMESSA ===== */}
+        {step === 4 && (
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 space-y-5">
+            <div className="border-b pb-4 mb-6">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 text-violet-600" /> Promessa Central
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">O argumento de venda principal</p>
+            </div>
+            <Field label="Promessa Principal *">
+              <textarea value={data.main_promise || ''} onChange={e => set('main_promise', e.target.value)}
+                rows={3} placeholder="Ex: Em 30 dias você vai perder 5kg sem cortar o que gosta..."
+                className={cn(inputCls, 'resize-none')} />
+            </Field>
+            <Field label="Principal Benefício / Transformação *">
+              <textarea value={data.main_benefit || ''} onChange={e => set('main_benefit', e.target.value)}
+                rows={3} placeholder="Ex: Recuperar a confiança no próprio corpo e ter energia o dia todo..."
+                className={cn(inputCls, 'resize-none')} />
+            </Field>
+            <Field label="Diferencial Competitivo">
+              <textarea value={data.differentiation || ''} onChange={e => set('differentiation', e.target.value)}
+                rows={3} placeholder="O que torna esse produto único em relação a concorrência..."
+                className={cn(inputCls, 'resize-none')} />
+            </Field>
+          </div>
+        )}
+
+        {/* ===== ETAPA 5: IDENTIDADE ===== */}
+        {step === 5 && (
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 space-y-5">
+            <div className="border-b pb-4 mb-6">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Palette className="w-5 h-5 text-violet-600" /> Identidade de Marca
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">Tom de voz e comunicação</p>
+            </div>
+            <TagInput label="Tom de Voz" values={data.voice_tones || []}
+              onChange={v => set('voice_tones', v)}
+              placeholder="Ex: Empático, Direto, Motivacional → Enter" />
+            <TagInput label="✅ Palavras para Usar" values={data.words_to_use || []}
+              onChange={v => set('words_to_use', v)}
+              placeholder="Ex: Transformação, Conquista, Resultado → Enter" />
+            <TagInput label="❌ Palavras para Evitar" values={data.words_to_avoid || []}
+              onChange={v => set('words_to_avoid', v)}
+              placeholder="Ex: Milagre, Fácil demais → Enter" />
+          </div>
+        )}
+
+        {/* ===== ETAPA 6: GERAR COM IA ===== */}
+        {step === 6 && (
+          <div className="space-y-6">
+            {/* Resumo do briefing */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-violet-600" /> Geração de Conteúdo com IA
+                </h2>
+                {data.status !== 'approved' && (
+                  <button onClick={() => handleSave(true)} disabled={saving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors">
+                    <Check className="w-4 h-4" /> Aprovar Briefing
+                  </button>
+                )}
+                {data.status === 'approved' && (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium">
+                    <Check className="w-4 h-4" /> Aprovado
+                  </span>
+                )}
+              </div>
+
+              {/* Resumo visual */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                {[
+                  { label: 'Expert', value: data.expert_name || '—' },
+                  { label: 'Produto', value: data.product_name || '—' },
+                  { label: 'Preço', value: data.product_price ? `R$ ${data.product_price.toLocaleString('pt-BR')}` : '—' },
+                  { label: 'Garantia', value: data.product_guarantee || '—' },
+                ].map(item => (
+                  <div key={item.label} className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 mb-0.5">{item.label}</p>
+                    <p className="font-semibold text-slate-800 text-sm truncate">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* API Key input */}
+              <div className="border-t pt-4">
+                <button onClick={() => setShowApiInput(!showApiInput)}
+                  className="text-sm text-violet-600 hover:underline flex items-center gap-1">
+                  🔑 {apiKey ? '✅ Chave OpenAI configurada' : 'Configurar chave OpenAI (GPT-4o)'}
+                </button>
+                {showApiInput && (
+                  <div className="mt-3 flex gap-2">
+                    <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
+                      placeholder="sk-..." className={cn(inputCls, 'flex-1')} />
+                    <button onClick={() => setShowApiInput(false)}
+                      className="px-3 py-2 bg-violet-600 text-white rounded-lg text-sm">Salvar</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Botões de geração */}
+            {[
+              { type: 'page', label: '📄 Página de Vendas', desc: 'Copy completa para landing page' },
+              { type: 'email_sequence', label: '📧 Sequência de Emails', desc: '5 emails para semana de lançamento' },
+              { type: 'whatsapp', label: '💬 Scripts WhatsApp', desc: '5 mensagens de disparo' },
+              { type: 'campaign', label: '📅 Plano de Conteúdo', desc: '20 posts para redes sociais' },
+            ].map(item => (
+              <div key={item.type} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="font-bold text-slate-800">{item.label}</h3>
+                    <p className="text-sm text-slate-500">{item.desc}</p>
+                  </div>
+                  <button onClick={() => handleGenerate(item.type)}
+                    disabled={!!generating || !apiKey}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
+                      !apiKey ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-500 hover:to-indigo-500 shadow-md shadow-violet-500/20',
+                      generating === item.type && 'opacity-70'
+                    )}>
+                    {generating === item.type ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Gerando...</>
+                    ) : (
+                      <><Wand2 className="w-4 h-4" /> Gerar</>
+                    )}
+                  </button>
+                </div>
+
+                {/* Conteúdo gerado */}
+                {generatedContent[item.type] && (
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-semibold text-violet-600">Conteúdo gerado por GPT-4o</span>
+                      <button onClick={() => navigator.clipboard.writeText(generatedContent[item.type])}
+                        className="text-xs text-slate-500 hover:text-violet-600 transition-colors">📋 Copiar</button>
+                    </div>
+                    <pre className="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">
+                      {generatedContent[item.type]}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Navigation */}
+        <div className="flex justify-between pt-2">
+          <button onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+            <ChevronLeft className="w-4 h-4" /> Anterior
+          </button>
+          <div className="flex gap-3">
+            <button onClick={() => handleSave()} disabled={saving}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-violet-200 text-violet-700 text-sm font-medium hover:bg-violet-50 transition-all">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar Rascunho
+            </button>
+            {step < STEPS.length ? (
+              <button onClick={() => setStep(s => s + 1)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-all">
+                Próximo <ChevronRight className="w-4 h-4" />
+              </button>
+            ) : (
+              <button onClick={() => handleSave(true)} disabled={saving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-all">
+                <Check className="w-4 h-4" /> Aprovar Briefing
+              </button>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

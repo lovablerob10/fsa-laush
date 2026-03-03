@@ -6,11 +6,13 @@ export const useAuthStore = create(
   persist(
     (set: any) => ({
       user: null,
-      tenant: null,
+      tenant: null,          // tenant real do usuário logado
+      activeTenant: null,    // tenant selecionado para trabalhar (pode ser diferente para admin FSA)
       isAuthenticated: false,
       setUser: (user: any) => set({ user, isAuthenticated: !!user }),
-      setTenant: (tenant: any) => set({ tenant }),
-      logout: () => set({ user: null, tenant: null, isAuthenticated: false }),
+      setTenant: (tenant: any) => set({ tenant, activeTenant: tenant }), // por padrão, activeTenant = tenant do user
+      setActiveTenant: (activeTenant: any) => set({ activeTenant }),
+      logout: () => set({ user: null, tenant: null, activeTenant: null, isAuthenticated: false }),
     }),
     {
       name: 'auth-storage',
@@ -18,12 +20,13 @@ export const useAuthStore = create(
   )
 );
 
+
 // Store de Dashboard
 export const useDashboardStore = create((set: any) => ({
   metrics: null,
-  dateRange: { 
-    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 
-    end: new Date() 
+  dateRange: {
+    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    end: new Date()
   },
   isLoading: false,
   setMetrics: (metrics: any) => set({ metrics }),
@@ -53,8 +56,8 @@ export const useLeadsStore = create((set: any) => ({
   })),
   selectLead: (lead: any) => set({ selectedLead: lead }),
   setTags: (tags: any[]) => set({ tags }),
-  setFilters: (filters: any) => set((state: any) => ({ 
-    filters: { ...state.filters, ...filters } 
+  setFilters: (filters: any) => set((state: any) => ({
+    filters: { ...state.filters, ...filters }
   })),
   setLoading: (isLoading: boolean) => set({ isLoading }),
 }));
@@ -66,11 +69,11 @@ export const useDocumentsStore = create((set: any) => ({
   isUploading: false,
   uploadProgress: 0,
   setDocuments: (documents: any[]) => set({ documents }),
-  addDocument: (document: any) => set((state: any) => ({ 
-    documents: [document, ...state.documents] 
+  addDocument: (document: any) => set((state: any) => ({
+    documents: [document, ...state.documents]
   })),
-  removeDocument: (id: string) => set((state: any) => ({ 
-    documents: state.documents.filter((d: any) => d.id !== id) 
+  removeDocument: (id: string) => set((state: any) => ({
+    documents: state.documents.filter((d: any) => d.id !== id)
   })),
   selectDocument: (document: any) => set({ selectedDocument: document }),
   setUploading: (isUploading: boolean) => set({ isUploading }),
@@ -85,8 +88,8 @@ export const useWhatsAppStore = create((set: any) => ({
   isConnecting: false,
   connectionStatus: 'idle',
   setInstances: (instances: any[]) => set({ instances }),
-  addInstance: (instance: any) => set((state: any) => ({ 
-    instances: [instance, ...state.instances] 
+  addInstance: (instance: any) => set((state: any) => ({
+    instances: [instance, ...state.instances]
   })),
   updateInstance: (id: string, updates: any) => set((state: any) => ({
     instances: state.instances.map((i: any) => i.id === id ? { ...i, ...updates } : i),
@@ -106,8 +109,8 @@ export const useLaunchesStore = create((set: any) => ({
   selectedLaunch: null,
   isLoading: false,
   setLaunches: (launches: any[]) => set({ launches }),
-  addLaunch: (launch: any) => set((state: any) => ({ 
-    launches: [launch, ...state.launches] 
+  addLaunch: (launch: any) => set((state: any) => ({
+    launches: [launch, ...state.launches]
   })),
   updateLaunch: (id: string, updates: any) => set((state: any) => ({
     launches: state.launches.map((l: any) => l.id === id ? { ...l, ...updates } : l),
@@ -125,8 +128,8 @@ export const useTemplatesStore = create((set: any) => ({
   selectedTemplate: null,
   isLoading: false,
   setTemplates: (templates: any[]) => set({ templates }),
-  addTemplate: (template: any) => set((state: any) => ({ 
-    templates: [template, ...state.templates] 
+  addTemplate: (template: any) => set((state: any) => ({
+    templates: [template, ...state.templates]
   })),
   updateTemplate: (id: string, updates: any) => set((state: any) => ({
     templates: state.templates.map((t: any) => t.id === id ? { ...t, ...updates } : t),
@@ -154,8 +157,8 @@ export const useAbandonedCartsStore = create((set: any) => ({
     carts: state.carts.map((c: any) => c.id === id ? { ...c, ...updates } : c),
   })),
   selectCart: (cart: any) => set({ selectedCart: cart }),
-  setFilters: (filters: any) => set((state: any) => ({ 
-    filters: { ...state.filters, ...filters } 
+  setFilters: (filters: any) => set((state: any) => ({
+    filters: { ...state.filters, ...filters }
   })),
   setLoading: (isLoading: boolean) => set({ isLoading }),
 }));
