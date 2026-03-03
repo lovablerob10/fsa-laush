@@ -35,8 +35,23 @@ export function NovoClienteModal({ open, onClose, onSuccess }: NovoClienteModalP
         setLoading(true);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) throw new Error('Sessão expirada');
+            // Force session refresh to get a valid, fresh token
+            let accessToken: string | null = null;
+
+            const { data: refreshData } = await supabase.auth.refreshSession();
+            if (refreshData?.session) {
+                accessToken = refreshData.session.access_token;
+            } else {
+                // Fallback to current session
+                const { data: { session: currentSession } } = await supabase.auth.getSession();
+                if (currentSession) {
+                    accessToken = currentSession.access_token;
+                }
+            }
+
+            if (!accessToken) {
+                throw new Error('Sessão expirada. Faça logout e login novamente.');
+            }
 
             const res = await fetch(
                 `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-client`,
@@ -44,7 +59,7 @@ export function NovoClienteModal({ open, onClose, onSuccess }: NovoClienteModalP
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${session.access_token}`,
+                        'Authorization': `Bearer ${accessToken}`,
                         'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
                     },
                     body: JSON.stringify({
@@ -57,6 +72,22 @@ export function NovoClienteModal({ open, onClose, onSuccess }: NovoClienteModalP
                     }),
                 }
             );
+
+            // Handle HTTP-level errors  
+            if (res.status === 401) {
+                throw new Error('Sessão inválida ou sem permissão. Faça logout e login novamente.');
+            }
+
+            if (!res.ok) {
+                const errorBody = await res.text();
+                console.error('Edge Function error:', res.status, errorBody);
+                try {
+                    const errorJson = JSON.parse(errorBody);
+                    throw new Error(errorJson.error || `Erro ${res.status}`);
+                } catch {
+                    throw new Error(`Erro ao criar cliente (HTTP ${res.status})`);
+                }
+            }
 
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
@@ -71,6 +102,7 @@ export function NovoClienteModal({ open, onClose, onSuccess }: NovoClienteModalP
             }, 2000);
 
         } catch (err: any) {
+            console.error('Erro ao criar cliente:', err);
             setError(err.message || 'Erro ao criar cliente');
         } finally {
             setLoading(false);

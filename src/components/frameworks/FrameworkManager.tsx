@@ -1,22 +1,21 @@
-import { useState, useEffect } from 'react';
-import { 
-  Upload, 
-  FileText, 
-  BookOpen, 
-  MessageSquare, 
-  Mail, 
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Upload,
+  FileText,
+  BookOpen,
+  MessageSquare,
+  Mail,
   Globe,
   Trash2,
-  Download,
-  CheckCircle2,
   AlertCircle,
-  Sparkles,
   Plus,
   Save,
   Building2,
-  Lock
+  Lock,
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,193 +25,213 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuthStore } from '@/store';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase/client';
 
 interface Framework {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;
   name: string;
-  type: 'page' | 'email' | 'whatsapp' | 'general';
+  type: 'page' | 'email' | 'whatsapp' | 'general' | 'script';
   description: string;
   content: string;
-  sections?: string[];
-  isGlobal: boolean; // Se é um framework padrão da agência ou específico do cliente
-  createdAt: string;
+  is_global: boolean;
+  created_at: string;
 }
 
-const INITIAL_FRAMEWORKS: Framework[] = [
-  {
-    id: '1',
-    tenant_id: 'global',
-    name: 'Framework Página de Vendas - Launch Lab',
-    type: 'page',
-    description: 'Estrutura comprovada para páginas de vendas de infoprodutos',
-    content: `
-## ESTRUTURA DA PÁGINA DE VENDAS
-
-### 1. HEADLINE PRINCIPAL
-- Promessa principal clara e específica
-- Subheadline que complementa
-- CTA acima da dobra
-
-### 2. SEÇÃO DE PROBLEMA
-- Identificar a dor do público
-- Amplificar o problema
-- Criar urgência
-
-### 3. APRESENTAÇÃO DA SOLUÇÃO
-- O que é o produto
-- Como funciona
-- Por que funciona
-
-### 4. PROVA SOCIAL
-- Depoimentos em vídeo
-- Cases de resultados
-- Antes/Depois
-
-### 5. OFERTA
-- O que está incluso
-- Bônus
-- Garantia
-
-### 6. CTA FINAL
-- Urgência
-- Escassez
-- Chamada para ação
-    `.trim(),
-    sections: ['Headline', 'Problema', 'Solução', 'Prova Social', 'Oferta', 'CTA'],
-    isGlobal: true,
-    createdAt: '2024-01-01',
-  },
-  {
-    id: '2',
-    tenant_id: 'global',
-    name: 'Sequência de E-mails - Aquecimento',
-    type: 'email',
-    description: '7 e-mails de aquecimento antes da abertura',
-    content: `
-## SEQUÊNCIA DE E-MAILS DE AQUECIMENTO
-
-### E-MAIL 1: IDENTIFICAÇÃO DA DOR
-Assunto: Você também sente isso?
-Objetivo: Conectar com a dor do público
-
-### E-MAIL 2: CONTEXTO DO PROBLEMA
-Assunto: Por que isso acontece?
-Objetivo: Educar sobre o problema
-
-### E-MAIL 3: APRESENTAÇÃO DA SOLUÇÃO
-Assunto: A solução que você procura
-Objetivo: Introduzir o método
-
-### E-MAIL 4: PROVA SOCIAL
-Assunto: Veja o que conseguiram
-Objetivo: Gerar credibilidade
-
-### E-MAIL 5: OFERTA ANTECIPADA
-Assunto: Uma oportunidade especial
-Objetivo: Criar desejo
-
-### E-MAIL 6: URGÊNCIA
-Assunto: Últimas horas
-Objetivo: Acelerar decisão
-
-### E-MAIL 7: ÚLTIMA CHANCE
-Assunto: Está acabando...
-Objetivo: Fechar vendas
-    `.trim(),
-    sections: ['E-mail 1', 'E-mail 2', 'E-mail 3', 'E-mail 4', 'E-mail 5', 'E-mail 6', 'E-mail 7'],
-    isGlobal: true,
-    createdAt: '2024-01-01',
-  },
-];
-
-const FRAMEWORK_TYPES = {
+const FRAMEWORK_TYPES: Record<string, { label: string; icon: any; color: string }> = {
   page: { label: 'Página de Vendas', icon: Globe, color: 'bg-violet-100 text-violet-600' },
   email: { label: 'E-mail', icon: Mail, color: 'bg-blue-100 text-blue-600' },
   whatsapp: { label: 'WhatsApp', icon: MessageSquare, color: 'bg-emerald-100 text-emerald-600' },
   general: { label: 'Geral', icon: BookOpen, color: 'bg-slate-100 text-slate-600' },
+  script: { label: 'Script', icon: FileText, color: 'bg-orange-100 text-orange-600' },
 };
 
 export function FrameworkManager() {
   const { tenant } = useAuthStore();
-  const [frameworks, setFrameworks] = useState<Framework[]>(INITIAL_FRAMEWORKS);
+  const [frameworks, setFrameworks] = useState<Framework[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [selectedFramework, setSelectedFramework] = useState<Framework | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
   const [newFramework, setNewFramework] = useState<Partial<Framework>>({
     type: 'page',
     name: '',
     description: '',
     content: '',
-    isGlobal: false,
+    is_global: false,
   });
 
-  // Carrega frameworks do tenant atual
-  useEffect(() => {
-    if (tenant?.id) {
-      loadFrameworks(tenant.id);
+  // ---- Load frameworks from Supabase ----
+  const loadFrameworks = useCallback(async () => {
+    if (!tenant?.id) return;
+    setIsLoading(true);
+    try {
+      const { data, error: err } = await supabase
+        .from('frameworks')
+        .select('*')
+        .or(`tenant_id.eq.${tenant.id},is_global.eq.true`)
+        .order('created_at', { ascending: false });
+
+      if (err) throw err;
+      setFrameworks(data || []);
+    } catch (err: any) {
+      console.error('Erro ao carregar frameworks:', err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
     }
   }, [tenant?.id]);
 
-  const loadFrameworks = async (tenantId: string) => {
-    // Simulação - em produção, buscaria do Supabase
-    // const { data } = await supabase
-    //   .from('frameworks')
-    //   .select('*')
-    //   .or(`tenant_id.eq.${tenantId},isGlobal.eq.true`);
-    console.log(`Carregando frameworks para o tenant: ${tenantId}`);
-    
-    // Mostra frameworks globais + do tenant específico
-    const tenantFrameworks = INITIAL_FRAMEWORKS.filter(
-      f => f.tenant_id === 'global' || f.tenant_id === tenantId
-    );
-    setFrameworks(tenantFrameworks);
-  };
+  useEffect(() => {
+    loadFrameworks();
+  }, [loadFrameworks]);
 
-  const handleSaveFramework = () => {
+  // ---- Save new framework ----
+  const handleSaveFramework = async () => {
     if (!newFramework.name || !newFramework.content || !tenant?.id) return;
-    
-    const framework: Framework = {
-      id: Math.random().toString(36).substr(2, 9),
-      tenant_id: tenant.id,
-      name: newFramework.name,
-      type: newFramework.type as Framework['type'],
-      description: newFramework.description || '',
-      content: newFramework.content,
-      isGlobal: false, // Frameworks criados por clientes são sempre específicos
-      createdAt: new Date().toISOString(),
-    };
-    
-    setFrameworks([...frameworks, framework]);
-    setShowNewDialog(false);
-    setNewFramework({ type: 'page', name: '', description: '', content: '', isGlobal: false });
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      const { data, error: err } = await supabase
+        .from('frameworks')
+        .insert({
+          tenant_id: tenant.id,
+          name: newFramework.name,
+          type: newFramework.type || 'general',
+          content: newFramework.content,
+          description: newFramework.description || '',
+          is_global: false,
+        })
+        .select()
+        .single();
+
+      if (err) throw err;
+
+      setFrameworks(prev => [data, ...prev]);
+      setShowNewDialog(false);
+      setNewFramework({ type: 'page', name: '', description: '', content: '', is_global: false });
+      setSuccess(`Framework "${data.name}" criado com sucesso!`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleDeleteFramework = (id: string) => {
+  // ---- Delete framework ----
+  const handleDeleteFramework = async (id: string) => {
     const framework = frameworks.find(f => f.id === id);
-    if (framework?.isGlobal) {
+    if (framework?.is_global) {
       alert('Frameworks globais não podem ser excluídos');
       return;
     }
-    setFrameworks(frameworks.filter(f => f.id !== id));
+    if (!confirm('Excluir este framework?')) return;
+
+    try {
+      const { error: err } = await supabase.from('frameworks').delete().eq('id', id);
+      if (err) throw err;
+      setFrameworks(prev => prev.filter(f => f.id !== id));
+    } catch (err: any) {
+      setError(err.message);
+    }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // ---- Upload file as framework ----
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !tenant?.id) return;
-    
-    // Simula processamento do arquivo vinculado ao tenant
-    alert(`Arquivo "${file.name}" carregado com sucesso para o cliente ${tenant.name}!`);
-    setShowUploadDialog(false);
+
+    try {
+      const text = await file.text();
+
+      const { data, error: err } = await supabase
+        .from('frameworks')
+        .insert({
+          tenant_id: tenant.id,
+          name: file.name.replace(/\.\w+$/, ''),
+          type: 'general',
+          content: text,
+          description: `Importado do arquivo ${file.name}`,
+          is_global: false,
+        })
+        .select()
+        .single();
+
+      if (err) throw err;
+
+      setFrameworks(prev => [data, ...prev]);
+      setShowUploadDialog(false);
+      setSuccess(`Framework importado de "${file.name}"`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    }
   };
 
-  // Separa frameworks globais e do tenant
-  const globalFrameworks = frameworks.filter(f => f.isGlobal || f.tenant_id === 'global');
-  const tenantFrameworks = frameworks.filter(f => !f.isGlobal && f.tenant_id === tenant?.id);
+  // Separate
+  const globalFrameworks = frameworks.filter(f => f.is_global);
+  const tenantFrameworks = frameworks.filter(f => !f.is_global && f.tenant_id === tenant?.id);
+
+  // ---- Render framework card ----
+  const renderFrameworkCard = (framework: Framework) => {
+    const typeConfig = FRAMEWORK_TYPES[framework.type] || FRAMEWORK_TYPES.general;
+    const Icon = typeConfig.icon;
+    const isGlobal = framework.is_global;
+
+    return (
+      <Card key={framework.id} className={cn('hover:shadow-lg transition-shadow', isGlobal && 'border-amber-200')}>
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', typeConfig.color)}>
+              <Icon className="w-5 h-5" />
+            </div>
+            <div className="flex gap-1">
+              {isGlobal && (
+                <Badge variant="outline" className="text-amber-600 border-amber-300">
+                  <Lock className="w-3 h-3 mr-1" />
+                  Padrão
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedFramework(framework)}
+              >
+                <BookOpen className="w-4 h-4" />
+              </Button>
+              {!isGlobal && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-600"
+                  onClick={() => handleDeleteFramework(framework.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <h3 className="font-semibold text-slate-900 mb-1">{framework.name}</h3>
+          <p className="text-sm text-slate-500 mb-3 line-clamp-2">{framework.description}</p>
+
+          <Badge className={typeConfig.color}>
+            {typeConfig.label}
+          </Badge>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header com identificação do cliente */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Frameworks & IAs</h1>
@@ -246,9 +265,9 @@ export function FrameworkManager() {
             <div>
               <p className="font-medium text-amber-800">Isolamento por Cliente</p>
               <p className="text-sm text-amber-700 mt-1">
-                Cada cliente tem seus próprios frameworks isolados. Frameworks marcados com 
-                <Lock className="w-3 h-3 inline mx-1" /> 
-                são padrão da agência e não podem ser editados. Frameworks criados por você são 
+                Cada cliente tem seus próprios frameworks isolados. Frameworks marcados com
+                <Lock className="w-3 h-3 inline mx-1" />
+                são padrão da agência e não podem ser editados. Frameworks criados por você são
                 exclusivos deste cliente.
               </p>
             </div>
@@ -256,192 +275,118 @@ export function FrameworkManager() {
         </CardContent>
       </Card>
 
-      {/* Tabs de Frameworks */}
-      <Tabs defaultValue="all">
-        <TabsList>
-          <TabsTrigger value="all">Todos ({frameworks.length})</TabsTrigger>
-          <TabsTrigger value="page">Páginas</TabsTrigger>
-          <TabsTrigger value="email">E-mails</TabsTrigger>
-          <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
-          <TabsTrigger value="general">Geral</TabsTrigger>
-        </TabsList>
+      {/* Success */}
+      {success && (
+        <Card className="bg-emerald-50 border-emerald-200">
+          <CardContent className="p-4 flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <span className="text-emerald-700 font-medium">{success}</span>
+          </CardContent>
+        </Card>
+      )}
 
-        <TabsContent value="all" className="mt-6">
-          {/* Frameworks Globais */}
-          {globalFrameworks.length > 0 && (
-            <div className="mb-8">
-              <h3 className="text-sm font-medium text-slate-500 mb-3 flex items-center gap-2">
-                <Lock className="w-4 h-4" />
-                Frameworks Padrão da Agência
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {globalFrameworks.map((framework) => {
-                  const typeConfig = FRAMEWORK_TYPES[framework.type];
-                  const Icon = typeConfig.icon;
-                  
-                  return (
-                    <Card key={framework.id} className="border-amber-200">
-                      <CardContent className="p-5">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', typeConfig.color)}>
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          <div className="flex gap-1">
-                            <Badge variant="outline" className="text-amber-600 border-amber-300">
-                              <Lock className="w-3 h-3 mr-1" />
-                              Padrão
-                            </Badge>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => setSelectedFramework(framework)}
-                            >
-                              <BookOpen className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <h3 className="font-semibold text-slate-900 mb-1">{framework.name}</h3>
-                        <p className="text-sm text-slate-500 mb-3">{framework.description}</p>
-                        
-                        <Badge className={typeConfig.color}>
-                          {typeConfig.label}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+      {/* Error */}
+      {error && (
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <p className="text-red-600 text-sm">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loading */}
+      {isLoading ? (
+        <div className="text-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-violet-500" />
+          <p className="text-slate-500">Carregando frameworks...</p>
+        </div>
+      ) : (
+        <Tabs defaultValue="all">
+          <TabsList>
+            <TabsTrigger value="all">Todos ({frameworks.length})</TabsTrigger>
+            <TabsTrigger value="page">Páginas</TabsTrigger>
+            <TabsTrigger value="email">E-mails</TabsTrigger>
+            <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+            <TabsTrigger value="general">Geral</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="all" className="mt-6">
+            {/* Global Frameworks */}
+            {globalFrameworks.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-sm font-medium text-slate-500 mb-3 flex items-center gap-2">
+                  <Lock className="w-4 h-4" />
+                  Frameworks Padrão da Agência
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {globalFrameworks.map(renderFrameworkCard)}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Frameworks do Tenant */}
-          {tenantFrameworks.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-slate-500 mb-3 flex items-center gap-2">
-                <Building2 className="w-4 h-4" />
-                Frameworks Exclusivos de {tenant?.name}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {tenantFrameworks.map((framework) => {
-                  const typeConfig = FRAMEWORK_TYPES[framework.type];
-                  const Icon = typeConfig.icon;
-                  
-                  return (
-                    <Card key={framework.id} className="hover:shadow-lg transition-shadow">
-                      <CardContent className="p-5">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', typeConfig.color)}>
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          <div className="flex gap-1">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => setSelectedFramework(framework)}
-                            >
-                              <BookOpen className="w-4 h-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              className="text-red-600"
-                              onClick={() => handleDeleteFramework(framework.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <h3 className="font-semibold text-slate-900 mb-1">{framework.name}</h3>
-                        <p className="text-sm text-slate-500 mb-3">{framework.description}</p>
-                        
-                        <Badge className={typeConfig.color}>
-                          {typeConfig.label}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+            {/* Tenant Frameworks */}
+            {tenantFrameworks.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-slate-500 mb-3 flex items-center gap-2">
+                  <Building2 className="w-4 h-4" />
+                  Frameworks Exclusivos de {tenant?.name}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {tenantFrameworks.map(renderFrameworkCard)}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {tenantFrameworks.length === 0 && (
-            <Card className="bg-slate-50">
-              <CardContent className="p-8 text-center">
-                <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500">Este cliente ainda não tem frameworks personalizados</p>
-                <Button 
-                  variant="outline" 
-                  className="mt-4"
-                  onClick={() => setShowNewDialog(true)}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Criar Primeiro Framework
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {['page', 'email', 'whatsapp', 'general'].map((type) => (
-          <TabsContent key={type} value={type} className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {frameworks
-                .filter(f => f.type === type)
-                .map((framework) => {
-                  const typeConfig = FRAMEWORK_TYPES[framework.type];
-                  const Icon = typeConfig.icon;
-                  const isGlobal = framework.isGlobal || framework.tenant_id === 'global';
-                  
-                  return (
-                    <Card key={framework.id} className={cn(isGlobal && 'border-amber-200')}>
-                      <CardContent className="p-5">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', typeConfig.color)}>
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          <div className="flex gap-1">
-                            {isGlobal && (
-                              <Badge variant="outline" className="text-amber-600 border-amber-300">
-                                <Lock className="w-3 h-3 mr-1" />
-                              </Badge>
-                            )}
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => setSelectedFramework(framework)}
-                            >
-                              <BookOpen className="w-4 h-4" />
-                            </Button>
-                            {!isGlobal && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="text-red-600"
-                                onClick={() => handleDeleteFramework(framework.id)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <h3 className="font-semibold text-slate-900 mb-1">{framework.name}</h3>
-                        <p className="text-sm text-slate-500 mb-3">{framework.description}</p>
-                        
-                        <Badge className={typeConfig.color}>
-                          {typeConfig.label}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-            </div>
+            {frameworks.length === 0 && (
+              <Card className="bg-slate-50">
+                <CardContent className="p-8 text-center">
+                  <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500">Nenhum framework encontrado</p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => setShowNewDialog(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Criar Primeiro Framework
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
-        ))}
-      </Tabs>
+
+          {['page', 'email', 'whatsapp', 'general'].map((type) => {
+            const filtered = frameworks.filter(f => f.type === type);
+            return (
+              <TabsContent key={type} value={type} className="mt-6">
+                {filtered.length === 0 ? (
+                  <Card className="bg-slate-50">
+                    <CardContent className="p-8 text-center">
+                      <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-500">Nenhum framework do tipo "{FRAMEWORK_TYPES[type]?.label}" encontrado</p>
+                      <Button
+                        variant="outline"
+                        className="mt-4"
+                        onClick={() => {
+                          setNewFramework(prev => ({ ...prev, type: type as Framework['type'] }));
+                          setShowNewDialog(true);
+                        }}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Criar Framework
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filtered.map(renderFrameworkCard)}
+                  </div>
+                )}
+              </TabsContent>
+            );
+          })}
+        </Tabs>
+      )}
 
       {/* New Framework Dialog */}
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
@@ -459,7 +404,7 @@ export function FrameworkManager() {
             <div>
               <Label>Tipo de Framework</Label>
               <div className="grid grid-cols-2 gap-2 mt-2">
-                {Object.entries(FRAMEWORK_TYPES).map(([key, config]) => {
+                {Object.entries(FRAMEWORK_TYPES).filter(([k]) => k !== 'script').map(([key, config]) => {
                   const Icon = config.icon;
                   return (
                     <button
@@ -479,51 +424,48 @@ export function FrameworkManager() {
                 })}
               </div>
             </div>
-            
+
             <div>
               <Label>Nome do Framework</Label>
-              <Input 
+              <Input
                 placeholder="Ex: Framework Página VSL"
                 value={newFramework.name}
                 onChange={(e) => setNewFramework({ ...newFramework, name: e.target.value })}
               />
             </div>
-            
+
             <div>
               <Label>Descrição</Label>
-              <Input 
+              <Input
                 placeholder="Breve descrição do que este framework faz"
                 value={newFramework.description}
                 onChange={(e) => setNewFramework({ ...newFramework, description: e.target.value })}
               />
             </div>
-            
+
             <div>
               <Label>Conteúdo do Framework</Label>
               <p className="text-xs text-slate-500 mb-2">
                 Descreva a estrutura, seções, exemplos e diretrizes
               </p>
-              <Textarea 
-                placeholder={`## ESTRUTURA
-
-### 1. SEÇÃO INICIAL
-- O que deve conter
-- Exemplo: "Use uma headline que..."
-
-### 2. SEÇÃO SEGUINTE
-...`}
+              <Textarea
+                placeholder={`## ESTRUTURA\n\n### 1. SEÇÃO INICIAL\n- O que deve conter\n- Exemplo: "Use uma headline que..."\n\n### 2. SEÇÃO SEGUINTE\n...`}
                 value={newFramework.content}
                 onChange={(e) => setNewFramework({ ...newFramework, content: e.target.value })}
                 rows={15}
               />
             </div>
-            
-            <Button 
+
+            <Button
               className="w-full bg-violet-600 hover:bg-violet-700"
               onClick={handleSaveFramework}
-              disabled={!newFramework.name || !newFramework.content || !tenant?.id}
+              disabled={!newFramework.name || !newFramework.content || !tenant?.id || isSaving}
             >
-              <Save className="w-4 h-4 mr-2" />
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
               Salvar Framework para {tenant?.name}
             </Button>
           </div>
@@ -553,29 +495,29 @@ export function FrameworkManager() {
               </p>
               <input
                 type="file"
-                accept=".pdf,.doc,.docx,.txt"
+                accept=".pdf,.doc,.docx,.txt,.md"
                 className="hidden"
                 id="framework-upload"
                 onChange={handleFileUpload}
               />
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="mt-4"
                 onClick={() => document.getElementById('framework-upload')?.click()}
               >
                 Selecionar Arquivo
               </Button>
             </div>
-            
+
             <div className="bg-slate-50 rounded-lg p-4">
               <p className="text-sm font-medium text-slate-700 mb-2">
                 O que acontece depois do upload?
               </p>
               <ul className="text-sm text-slate-500 space-y-1">
-                <li>• O documento é processado pela IA</li>
+                <li>• O conteúdo é salvo como framework no Supabase</li>
                 <li>• Fica vinculado apenas a este cliente</li>
-                <li>• Outros clientes não terão acesso</li>
-                <li>• Você pode editar depois se necessário</li>
+                <li>• Os agentes de IA usam como referência</li>
+                <li>• Você pode excluir depois se necessário</li>
               </ul>
             </div>
           </div>
@@ -591,10 +533,10 @@ export function FrameworkManager() {
                 <div className="flex items-center gap-3">
                   <div className={cn(
                     'w-10 h-10 rounded-lg flex items-center justify-center',
-                    FRAMEWORK_TYPES[selectedFramework.type].color
+                    (FRAMEWORK_TYPES[selectedFramework.type] || FRAMEWORK_TYPES.general).color
                   )}>
                     {(() => {
-                      const Icon = FRAMEWORK_TYPES[selectedFramework.type].icon;
+                      const Icon = (FRAMEWORK_TYPES[selectedFramework.type] || FRAMEWORK_TYPES.general).icon;
                       return <Icon className="w-5 h-5" />;
                     })()}
                   </div>
@@ -602,7 +544,7 @@ export function FrameworkManager() {
                     <DialogTitle>{selectedFramework.name}</DialogTitle>
                     <p className="text-sm text-slate-500">{selectedFramework.description}</p>
                   </div>
-                  {(selectedFramework.isGlobal || selectedFramework.tenant_id === 'global') && (
+                  {selectedFramework.is_global && (
                     <Badge variant="outline" className="text-amber-600 border-amber-300 ml-auto">
                       <Lock className="w-3 h-3 mr-1" />
                       Padrão da Agência
@@ -610,23 +552,12 @@ export function FrameworkManager() {
                   )}
                 </div>
               </DialogHeader>
-              
+
               <div className="mt-4">
                 <div className="bg-slate-50 rounded-lg p-4 whitespace-pre-wrap font-mono text-sm">
                   {selectedFramework.content}
                 </div>
               </div>
-              
-              {selectedFramework.sections && (
-                <div className="mt-4">
-                  <p className="font-medium text-sm mb-2">Seções:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedFramework.sections.map((section, i) => (
-                      <Badge key={i} variant="secondary">{section}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </DialogContent>

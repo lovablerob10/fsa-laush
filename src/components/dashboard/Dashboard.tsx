@@ -63,9 +63,9 @@ export function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
-            Visão geral — <span className="text-violet-400 font-medium">{activeTenant?.name || 'Selecione um cliente'}</span>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Visão geral — <span className="text-violet-600 dark:text-violet-400 font-medium">{activeTenant?.name || 'Selecione um cliente'}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -91,8 +91,8 @@ export function Dashboard() {
                   {stat.change}
                 </span>
               </div>
-              <p className="text-2xl font-bold text-white tracking-tight">{stat.value}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{stat.label}</p>
+              <p className="text-2xl font-bold text-foreground tracking-tight">{stat.value}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
             </div>
           );
         })}
@@ -104,12 +104,12 @@ export function Dashboard() {
         <div className="glass-card p-5 span-3">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-violet-400" />
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
                 Receita & Leads (14 dias)
               </h3>
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500" /> Receita</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Leads</span>
             </div>
@@ -138,8 +138,8 @@ export function Dashboard() {
 
         {/* Quick Actions — 1 col */}
         <div className="glass-card p-5">
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-400" />
+          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500 dark:text-amber-400" />
             Ações Rápidas
           </h3>
           <div className="space-y-2">
@@ -147,15 +147,15 @@ export function Dashboard() {
               const Icon = action.icon;
               return (
                 <button key={i}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/30 hover:border-violet-500/30 hover:bg-violet-600/5 transition-all group text-left">
-                  <div className="w-9 h-9 rounded-lg bg-slate-800/80 flex items-center justify-center group-hover:bg-violet-600/20 transition-colors">
-                    <Icon className="w-4 h-4 text-slate-400 group-hover:text-violet-400 transition-colors" />
+                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/30 hover:border-violet-500/30 hover:bg-violet-600/5 transition-all group text-left">
+                  <div className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center group-hover:bg-violet-600/10 dark:group-hover:bg-violet-600/20 transition-colors">
+                    <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] text-slate-300 font-medium truncate">{action.label}</p>
-                    <p className="text-[11px] text-slate-600 truncate">{action.desc}</p>
+                    <p className="text-[13px] text-foreground font-medium truncate">{action.label}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{action.desc}</p>
                   </div>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-violet-400 transition-colors" />
+                  <ArrowUpRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-violet-500 dark:group-hover:text-violet-400 transition-colors" />
                 </button>
               );
             })}
@@ -167,35 +167,35 @@ export function Dashboard() {
       <div className="bento-grid">
         {/* AI Agent Activity — 2 cols */}
         <div className="glass-card p-5 span-2">
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Bot className="w-4 h-4 text-violet-400" />
+          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Bot className="w-4 h-4 text-violet-600 dark:text-violet-400" />
             Atividade da Equipe IA
-            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 font-semibold">LIVE</span>
+            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-400 font-semibold">LIVE</span>
           </h3>
           <div className="space-y-3">
             {agentActivities.map((activity, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/20 border border-slate-800/40">
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-800/40">
                 <div className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
-                  activity.status === 'working' ? 'bg-violet-600/20 text-violet-400' : 'bg-emerald-600/20 text-emerald-400'
+                  activity.status === 'working' ? 'bg-violet-600/10 text-violet-600 dark:bg-violet-600/20 dark:text-violet-400' : 'bg-emerald-600/10 text-emerald-600 dark:bg-emerald-600/20 dark:text-emerald-400'
                 )}>
                   {activity.agent.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] text-slate-300 font-medium truncate">
-                    <span className="text-white font-semibold">{activity.agent}</span> — {activity.task}
+                  <p className="text-[13px] text-muted-foreground font-medium truncate">
+                    <span className="text-foreground font-semibold">{activity.agent}</span> — {activity.task}
                   </p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Clock className="w-3 h-3 text-slate-600" />
-                    <span className="text-[11px] text-slate-600">{activity.time}</span>
+                    <Clock className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-[11px] text-muted-foreground">{activity.time}</span>
                     {activity.status === 'working' && (
-                      <span className="flex items-center gap-1 text-[10px] text-violet-400">
-                        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-pulse" />
+                      <span className="flex items-center gap-1 text-[10px] text-violet-500 dark:text-violet-400">
+                        <span className="w-1.5 h-1.5 bg-violet-500 dark:bg-violet-400 rounded-full animate-pulse" />
                         Trabalhando...
                       </span>
                     )}
                     {activity.status === 'done' && (
-                      <span className="text-[10px] text-emerald-500">✓ Concluído</span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-500">✓ Concluído</span>
                     )}
                   </div>
                 </div>
@@ -206,8 +206,8 @@ export function Dashboard() {
 
         {/* Launch Progress — 2 cols */}
         <div className="glass-card p-5 span-2">
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Target className="w-4 h-4 text-amber-400" />
+          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+            <Target className="w-4 h-4 text-amber-500 dark:text-amber-400" />
             Progresso do Lançamento
           </h3>
           <div className="space-y-4">
@@ -216,14 +216,14 @@ export function Dashboard() {
               { label: 'Página de Vendas', progress: 75, color: 'bg-violet-500' },
               { label: 'Sequência de Emails', progress: 40, color: 'bg-amber-500' },
               { label: 'Anúncios Criativos', progress: 20, color: 'bg-cyan-500' },
-              { label: 'Semana de Lançamento', progress: 0, color: 'bg-slate-600' },
+              { label: 'Semana de Lançamento', progress: 0, color: 'bg-slate-300 dark:bg-slate-600' },
             ].map((item, i) => (
               <div key={i}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[13px] text-slate-400">{item.label}</span>
-                  <span className="text-[12px] text-slate-500 font-medium">{item.progress}%</span>
+                  <span className="text-[13px] text-muted-foreground">{item.label}</span>
+                  <span className="text-[12px] text-muted-foreground font-medium">{item.progress}%</span>
                 </div>
-                <div className="w-full h-2 bg-slate-800/60 rounded-full overflow-hidden">
+                <div className="w-full h-2 bg-slate-200 dark:bg-slate-800/60 rounded-full overflow-hidden">
                   <div className={cn('h-2 rounded-full transition-all duration-1000', item.color)}
                     style={{ width: `${item.progress}%` }} />
                 </div>

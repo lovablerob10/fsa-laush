@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Rocket, Loader2 } from 'lucide-react';
 import { LoginPage } from '@/components/auth/LoginPage';
+import { LandingPage } from '@/components/landing/LandingPage';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { Timeline7Weeks } from '@/components/timeline/Timeline7Weeks';
@@ -10,6 +12,7 @@ import { SalesRecovery } from '@/components/recovery/SalesRecovery';
 import { ExpertBriefing } from '@/components/briefing/ExpertBriefing';
 import { ActionCalendar } from '@/components/actions/ActionCalendar';
 import { FrameworkManager } from '@/components/frameworks/FrameworkManager';
+import { AIAgents } from '@/components/ai-agents/AIAgents';
 import { useUIStore, useAuthStore } from '@/store';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
@@ -33,14 +36,14 @@ function ComingSoon({ title }: { title: string }) {
 
 function LoadingScreen() {
   return (
-    <div className="min-h-screen bg-[hsl(222,47%,5%)] flex flex-col items-center justify-center gap-4 relative overflow-hidden">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 relative overflow-hidden">
       <div className="bg-orb bg-orb-1" />
       <div className="bg-orb bg-orb-2" />
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30 neon-glow">
         <Rocket className="w-8 h-8 text-white" />
       </div>
       <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
-      <p className="text-slate-500 text-sm tracking-wide">Carregando Launch Lab Pro...</p>
+      <p className="text-muted-foreground text-sm tracking-wide">Carregando Launch Lab Pro...</p>
     </div>
   );
 }
@@ -59,6 +62,7 @@ function AppContent() {
       case 'rag': return <RAGManager />;
       case 'frameworks': return <FrameworkManager />;
       case 'recovery': return <SalesRecovery />;
+      case 'ai-agents': return <AIAgents />;
       case 'templates': return <ComingSoon title="Templates de Mensagem" />;
       case 'analytics': return <ComingSoon title="Analytics Avançado" />;
       case 'settings': return <ComingSoon title="Configurações" />;
@@ -67,11 +71,11 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(222,47%,5%)] relative overflow-hidden">
+    <div className="min-h-screen bg-background relative overflow-hidden transition-colors duration-300">
       {/* Background Orbs */}
-      <div className="bg-orb bg-orb-1" />
-      <div className="bg-orb bg-orb-2" />
-      <div className="bg-orb bg-orb-3" />
+      <div className="bg-orb bg-orb-1 opacity-20 dark:opacity-10" />
+      <div className="bg-orb bg-orb-2 opacity-20 dark:opacity-10" />
+      <div className="bg-orb bg-orb-3 opacity-20 dark:opacity-10" />
 
       <Sidebar />
       <main className={cn(
@@ -87,10 +91,14 @@ function AppContent() {
 function App() {
   const { loading } = useAuth();
   const { isAuthenticated } = useAuthStore();
+  const [showLogin, setShowLogin] = useState(false);
 
   if (loading) return <LoadingScreen />;
-  if (!isAuthenticated) return <LoginPage />;
-  return <AppContent />;
+  if (isAuthenticated) return <AppContent />;
+
+  // Not authenticated: show landing or login
+  if (showLogin) return <LoginPage />;
+  return <LandingPage onEnterApp={() => setShowLogin(true)} />;
 }
 
 export default App;

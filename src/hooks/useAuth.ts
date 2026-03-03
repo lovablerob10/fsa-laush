@@ -3,11 +3,10 @@ import { supabase } from '@/lib/supabase/client';
 import { useAuthStore } from '@/store';
 
 export function useAuth() {
-    const { setUser, setTenant, logout } = useAuthStore();
+    const { setUser, setTenant, logout } = useAuthStore() as any;
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Pega sessão atual ao montar
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session?.user) {
                 loadUserProfile(session.user.id);
@@ -16,11 +15,10 @@ export function useAuth() {
             }
         });
 
-        // Listener tempo real de auth state
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
+            (event, session) => {
                 if (event === 'SIGNED_IN' && session?.user) {
-                    await loadUserProfile(session.user.id);
+                    loadUserProfile(session.user.id);
                 } else if (event === 'SIGNED_OUT') {
                     logout();
                     setLoading(false);
@@ -32,23 +30,24 @@ export function useAuth() {
     }, []);
 
     async function loadUserProfile(authUserId: string) {
-        setLoading(true);
         try {
             const { data: userProfile, error } = await supabase
                 .from('users')
-                .select('id, name, email, role, avatar_url, tenant_id, created_at, tenants(id, name, slug, settings, created_at)')
+                .select(`
+          id, name, email, role, avatar_url, tenant_id, created_at,
+          tenants (id, name, slug, settings, created_at)
+        `)
                 .eq('id', authUserId)
                 .single();
 
             if (error || !userProfile) {
                 console.warn('Perfil não encontrado para:', authUserId, error?.message);
-                // Limpa sessão Supabase para não ficar em loop
                 await supabase.auth.signOut();
                 logout();
                 return;
             }
 
-            const tenant = (userProfile as any).tenants;
+            const tenant = userProfile.tenants as any;
 
             setUser({
                 id: userProfile.id,
@@ -60,13 +59,15 @@ export function useAuth() {
                 created_at: userProfile.created_at,
             });
 
-            setTenant({
-                id: tenant.id,
-                name: tenant.name,
-                slug: tenant.slug,
-                settings: tenant.settings,
-                created_at: tenant.created_at,
-            });
+            if (tenant) {
+                setTenant({
+                    id: tenant.id,
+                    name: tenant.name,
+                    slug: tenant.slug,
+                    settings: tenant.settings,
+                    created_at: tenant.created_at,
+                });
+            }
         } catch (err) {
             console.error('Erro ao carregar perfil:', err);
             await supabase.auth.signOut();
