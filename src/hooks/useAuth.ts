@@ -38,7 +38,7 @@ export function useAuth() {
           tenants (id, name, slug, settings, created_at)
         `)
                 .eq('id', authUserId)
-                .single();
+                .single() as { data: any; error: any };
 
             if (error || !userProfile) {
                 console.warn('Perfil não encontrado para:', authUserId, error?.message);

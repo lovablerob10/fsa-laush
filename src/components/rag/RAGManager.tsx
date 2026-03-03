@@ -292,15 +292,16 @@ Responda de forma útil e prática, baseando-se nos documentos quando relevante.
           .single();
 
         if (briefing) {
+          const b = briefing as any;
           briefingContext = `
 BRIEFING DO EXPERT:
-- Expert: ${briefing.expert_name || 'N/A'}
-- Produto: ${briefing.product_name || 'N/A'}
-- Descrição: ${briefing.product_description || 'N/A'}
-- Público-alvo: ${briefing.target_audience || 'N/A'}
-- Promessa: ${briefing.main_promise || 'N/A'}
-- Diferencial: ${briefing.differentiation || 'N/A'}
-- Tom de voz: ${briefing.voice_tones?.join(', ') || 'N/A'}
+- Expert: ${b.expert_name || 'N/A'}
+- Produto: ${b.product_name || 'N/A'}
+- Descrição: ${b.product_description || 'N/A'}
+- Público-alvo: ${b.target_audience || 'N/A'}
+- Promessa: ${b.main_promise || 'N/A'}
+- Diferencial: ${b.differentiation || 'N/A'}
+- Tom de voz: ${b.voice_tones?.join(', ') || 'N/A'}
 `;
         }
       }
@@ -354,17 +355,17 @@ Regras:
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dossiê IA</h1>
-          <p className="text-slate-500">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Dossiê IA</h1>
+          <p className="text-sm text-slate-500">
             {isLoading ? 'Carregando...' : `${documents.length} documento${documents.length !== 1 ? 's' : ''} na base de conhecimento`}
           </p>
         </div>
         <Button
-          className="bg-violet-600 hover:bg-violet-700"
+          className="bg-violet-600 hover:bg-violet-700 w-full sm:w-auto"
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
         >
@@ -417,11 +418,11 @@ Regras:
       )}
 
       <Tabs defaultValue="documents">
-        <TabsList>
-          <TabsTrigger value="documents">Documentos</TabsTrigger>
-          <TabsTrigger value="search">Busca Inteligente</TabsTrigger>
-          <TabsTrigger value="chat">Chat com IA</TabsTrigger>
-          <TabsTrigger value="copy">Gerar Copy</TabsTrigger>
+        <TabsList className="w-full overflow-x-auto flex">
+          <TabsTrigger value="documents" className="text-xs sm:text-sm">Documentos</TabsTrigger>
+          <TabsTrigger value="search" className="text-xs sm:text-sm">Busca Inteligente</TabsTrigger>
+          <TabsTrigger value="chat" className="text-xs sm:text-sm">Chat com IA</TabsTrigger>
+          <TabsTrigger value="copy" className="text-xs sm:text-sm">Gerar Copy</TabsTrigger>
         </TabsList>
 
         {/* Documents Tab */}
@@ -444,7 +445,7 @@ Regras:
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {documents.map((doc) => (
                 <Card key={doc.id} className="hover:shadow-lg transition-shadow">
                   <CardContent className="p-4">
@@ -535,7 +536,7 @@ Regras:
 
         {/* Chat Tab */}
         <TabsContent value="chat" className="mt-6">
-          <Card className="h-[600px] flex flex-col">
+          <Card className="h-[70vh] sm:h-[600px] flex flex-col">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-violet-500" />
@@ -617,7 +618,7 @@ Regras:
                 <p className="text-slate-500">Crie textos persuasivos baseados no dossiê + briefing do expert</p>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
                 <Button
                   variant="outline"
                   className="h-auto py-4 flex flex-col items-center gap-2"

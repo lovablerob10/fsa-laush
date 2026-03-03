@@ -106,13 +106,14 @@ export function FrameworkManager() {
           content: newFramework.content,
           description: newFramework.description || '',
           is_global: false,
-        })
+        } as any)
         .select()
         .single();
 
       if (err) throw err;
+      const record = data as any;
 
-      setFrameworks(prev => [data, ...prev]);
+      setFrameworks(prev => [record, ...prev]);
       setShowNewDialog(false);
       setNewFramework({ type: 'page', name: '', description: '', content: '', is_global: false });
       setSuccess(`Framework "${data.name}" criado com sucesso!`);
@@ -159,13 +160,14 @@ export function FrameworkManager() {
           content: text,
           description: `Importado do arquivo ${file.name}`,
           is_global: false,
-        })
+        } as any)
         .select()
         .single();
 
       if (err) throw err;
+      const record = data as any;
 
-      setFrameworks(prev => [data, ...prev]);
+      setFrameworks(prev => [record, ...prev]);
       setShowUploadDialog(false);
       setSuccess(`Framework importado de "${file.name}"`);
       setTimeout(() => setSuccess(null), 3000);
@@ -230,28 +232,28 @@ export function FrameworkManager() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Frameworks & IAs</h1>
-          <p className="text-slate-500">Documentos para treinar os agentes de IA</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Frameworks & IAs</h1>
+          <p className="text-sm text-slate-500">Documentos para treinar os agentes de IA</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
           {tenant && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-violet-100 rounded-lg">
+            <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-violet-100 rounded-lg">
               <Building2 className="w-4 h-4 text-violet-600" />
               <span className="text-sm font-medium text-violet-700">{tenant.name}</span>
             </div>
           )}
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowUploadDialog(true)}>
+            <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setShowUploadDialog(true)}>
               <Upload className="w-4 h-4 mr-2" />
-              Carregar Documento
+              <span className="hidden sm:inline">Carregar</span> Documento
             </Button>
-            <Button className="bg-violet-600 hover:bg-violet-700" onClick={() => setShowNewDialog(true)}>
+            <Button className="bg-violet-600 hover:bg-violet-700 flex-1 sm:flex-none" onClick={() => setShowNewDialog(true)}>
               <Plus className="w-4 h-4 mr-2" />
-              Novo Framework
+              <span className="hidden sm:inline">Novo</span> Framework
             </Button>
           </div>
         </div>
@@ -302,12 +304,12 @@ export function FrameworkManager() {
         </div>
       ) : (
         <Tabs defaultValue="all">
-          <TabsList>
-            <TabsTrigger value="all">Todos ({frameworks.length})</TabsTrigger>
-            <TabsTrigger value="page">Páginas</TabsTrigger>
-            <TabsTrigger value="email">E-mails</TabsTrigger>
-            <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
-            <TabsTrigger value="general">Geral</TabsTrigger>
+          <TabsList className="w-full overflow-x-auto flex">
+            <TabsTrigger value="all" className="text-xs sm:text-sm">Todos ({frameworks.length})</TabsTrigger>
+            <TabsTrigger value="page" className="text-xs sm:text-sm">Páginas</TabsTrigger>
+            <TabsTrigger value="email" className="text-xs sm:text-sm">E-mails</TabsTrigger>
+            <TabsTrigger value="whatsapp" className="text-xs sm:text-sm">WhatsApp</TabsTrigger>
+            <TabsTrigger value="general" className="text-xs sm:text-sm">Geral</TabsTrigger>
           </TabsList>
 
           <TabsContent value="all" className="mt-6">
@@ -318,7 +320,7 @@ export function FrameworkManager() {
                   <Lock className="w-4 h-4" />
                   Frameworks Padrão da Agência
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                   {globalFrameworks.map(renderFrameworkCard)}
                 </div>
               </div>
@@ -378,7 +380,7 @@ export function FrameworkManager() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                     {filtered.map(renderFrameworkCard)}
                   </div>
                 )}

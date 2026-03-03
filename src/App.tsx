@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Rocket, Loader2 } from 'lucide-react';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { LandingPage } from '@/components/landing/LandingPage';
@@ -50,6 +50,14 @@ function LoadingScreen() {
 
 function AppContent() {
   const { sidebarOpen, currentPage } = useUIStore();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const renderPage = () => {
     switch (currentPage) {
@@ -80,7 +88,7 @@ function AppContent() {
       <Sidebar />
       <main className={cn(
         'transition-all duration-300 min-h-screen relative z-10',
-        sidebarOpen ? 'ml-64' : 'ml-16'
+        isMobile ? 'ml-0 pt-14' : (sidebarOpen ? 'ml-64' : 'ml-16')
       )}>
         {renderPage()}
       </main>
