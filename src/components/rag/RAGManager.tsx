@@ -140,7 +140,9 @@ export function RAGManager() {
 
     try {
       // Read file content as text
-      const text = await file.text();
+      const rawText = await file.text();
+      // Sanitize: remove control characters (except \n \t \r) that break JSON serialization
+      const text = rawText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ');
       setUploadProgress(40);
 
       // Get auth token
