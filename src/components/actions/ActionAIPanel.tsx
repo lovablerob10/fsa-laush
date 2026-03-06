@@ -281,7 +281,10 @@ export function ActionAIPanel({ action, onClose }: Props) {
     const [carouselSlides, setCarouselSlides] = useState<Array<{ base64: string; mimeType: string }>>([]);
     const [carouselProgress, setCarouselProgress] = useState(0);
     const [generatingCarousel, setGeneratingCarousel] = useState(false);
+    const [generatingScript, setGeneratingScript] = useState(false);
     const [activeSlide, setActiveSlide] = useState(0);
+    // Script: array of { texto_principal, legenda_apoio } per slide
+    const [carouselScript, setCarouselScript] = useState<Array<{ texto_principal: string; legenda_apoio?: string }> | null>(null);
 
     // Expert photo upload state
     const [uploadedPhoto, setUploadedPhoto] = useState<{ base64: string; mimeType: string; preview: string } | null>(null);
@@ -429,12 +432,11 @@ export function ActionAIPanel({ action, onClose }: Props) {
         }
     }
 
-    // ── Build carousel slide prompt ──
+    // ── Build carousel slide prompt (now receives script slide texts) ──
     function buildCarouselSlidePrompt(
         slideIndex: number,
         totalSlides: number,
-        mainHeadline: string,
-        benefits: string[],
+        scriptSlide: { texto_principal: string; legenda_apoio?: string },
         briefingData: any
     ): string {
         const b = briefingData || {};
@@ -446,77 +448,141 @@ export function ActionAIPanel({ action, onClose }: Props) {
             minimalista: 'Light gray background. Single deep violet accent. Clean sans-serif.',
         };
         const palette = styleMap[imageStyle] || styleMap.profissional;
-        const position = slideIndex === 0 ? 'first'
-            : slideIndex === totalSlides - 1 ? 'last'
-                : 'middle';
+        const isFirst = slideIndex === 0;
+        const isLast = slideIndex === totalSlides - 1;
 
-        const slideConfigs = {
-            first: {
-                role: 'GANCHO — Hook slide that grabs attention immediately',
-                text: `HEADLINE: "${mainHeadline.substring(0, 35)}"
-SUBHEADLINE: "Deslize para descobrir →"
-EXPERT: "${b.expert_name ? 'Com ' + b.expert_name : ''}"`,
-                tip: 'Large bold headline centered. Arrow or swipe indicator at bottom-right.',
-            },
-            middle: {
-                role: `CONTEÚDO — Content slide ${slideIndex} of ${totalSlides - 2} (teaching/benefit slide)`,
-                text: `NUMBER: "0${slideIndex}" (large, left corner)
-HEADLINE: "${(benefits[slideIndex - 1] || b.main_benefit || 'Benefício chave').substring(0, 35)}"
-EXPERT NAME (bottom): "${b.expert_name || ''}"`,
-                tip: 'Clean content layout. Large number on left. Concise headline on right. Minimalist.',
-            },
-            last: {
-                role: 'CTA — Call-to-action final slide that converts',
-                text: `HEADLINE: "Pronto para transformar?" 
-CTA BUTTON: "Quero Começar"
+        let slideRole = '';
+        let text = '';
+        let tip = '';
+
+        if (isFirst) {
+            slideRole = 'GANCHO — Hook slide that grabs attention immediately';
+            text = `HEADLINE: "${scriptSlide.texto_principal}"
+SUBHEADLINE: "${scriptSlide.legenda_apoio || 'Deslize para descobrir →'}"
+EXPERT: "${b.expert_name ? 'Com ' + b.expert_name : ''}"`.trim();
+            tip = 'Large bold headline centered. Arrow or swipe indicator at bottom-right.';
+        } else if (isLast) {
+            slideRole = 'CTA — Call-to-action final slide that converts';
+            text = `HEADLINE: "${scriptSlide.texto_principal}"
+CTA BUTTON: "${scriptSlide.legenda_apoio || 'Quero Começar'}"
 BRAND: "${b.product_name || ''}"
-EXPERT: "${b.expert_name || ''}"`,
-                tip: 'Strong CTA button. Brand name prominent. Urgency feel.',
-            },
-        };
-        const cfg = slideConfigs[position];
+EXPERT: "${b.expert_name || ''}"`.trim();
+            tip = 'Strong CTA button. Brand name prominent. Urgency feel.';
+        } else {
+            slideRole = `CONTEÚDO — Teaching/benefit slide ${slideIndex} of ${totalSlides - 2}`;
+            text = `NUMBER: "0${slideIndex}" (large, left corner)
+HEADLINE: "${scriptSlide.texto_principal}"
+${scriptSlide.legenda_apoio ? 'SUBHEADLINE: "' + scriptSlide.legenda_apoio + '"' : ''}
+EXPERT NAME (bottom): "${b.expert_name || ''}"`.trim();
+            tip = 'Clean layout. Large number on left. Concise headline on right. Minimalist.';
+        }
+
         return [
             'Create carousel slide ' + (slideIndex + 1) + ' of ' + totalSlides + ' for Instagram.',
             'CANVAS: ' + ac.dims + 'px (' + (aspectRatio === 'auto' ? '1:1' : aspectRatio) + ')',
             'VISUAL STYLE: ' + palette,
-            'SLIDE ROLE: ' + cfg.role,
+            'SLIDE ROLE: ' + slideRole,
             '',
             'TEXT (ALL fully visible — 80px safe zone all edges):',
-            cfg.text,
+            text,
             '',
-            'DESIGN TIP: ' + cfg.tip,
-            'RULE: Consistent style with other slides (same color scheme, font family). No internal task names. Premium Brazilian marketing.',
+            'DESIGN TIP: ' + tip,
+            'RULE: Consistent style across all slides (same color scheme, font family). No internal task names. Premium Brazilian marketing.',
         ].join('\n');
     }
 
-    // ── Generate carousel ──
+    // ── Phase 1: Generate AIDA script via Gemini ──
+    async function generateCarouselScript(numSlides: number): Promise<Array<{ texto_principal: string; legenda_apoio?: string }>> {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) throw new Error('API key não configurada');
+        const b = briefing || {};
+        const rawHeadline = (blocks.find(bl =>
+            bl.label.toLowerCase().includes('headline') || bl.label.toLowerCase().includes('gancho')
+        )?.content?.split('\n')[0]?.replace(/^"|"|\.\*/g, '').trim())
+            || b.main_promise || action.title || 'Transforme sua vida agora';
+
+        const contextLines = [
+            b.expert_name ? `Expert: ${b.expert_name}` : '',
+            b.product_name ? `Produto: ${b.product_name}` : '',
+            b.target_audience ? `Público-alvo: ${b.target_audience}` : '',
+            b.main_promise ? `Promessa principal: ${b.main_promise}` : '',
+            b.differentiation ? `Diferencial: ${b.differentiation}` : '',
+            action.objective ? `Objetivo da ação: ${action.objective}` : '',
+            `Tema do carrossel: ${rawHeadline}`,
+        ].filter(Boolean).join('\n');
+
+        const prompt = `Você é um Copywriter Estratégico Sênior especializado em marketing digital brasileiro.
+
+Contexto:
+${contextLines}
+
+Crie um roteiro narrativo AIDA para um carrossel de Instagram com EXATAMENTE ${numSlides} slides.
+CADA slide deve ter um texto ÚNICO e COMPLEMENTAR ao anterior. É PROIBIDO repetir a mesma frase.
+
+Estrutura obrigatória:
+- Slide 1 (Atenção/Gancho): Headline de impacto que gera curiosidade. Máx 50 chars.
+- Slides do meio (Interesse/Desejo): Benefícios DISTINTOS ou passos do método. Cada slide traz um novo ângulo. Máx 50 chars no texto_principal.
+- Último slide (Ação/CTA): Call to action claro e direto. Ex: "Clique e comece agora". No campo legenda_apoio, coloque o texto do botão CTA.
+
+Limite de caracteres: texto_principal máx 60 chars, legenda_apoio máx 50 chars.
+
+Responda SOMENTE com JSON válido neste formato (sem markdown, sem texto extra):
+{
+  "slides": [
+    { "numero": 1, "texto_principal": "...", "legenda_apoio": "..." },
+    ...
+  ]
+}`;
+
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.85, maxOutputTokens: 2048 } }) }
+        );
+        if (!res.ok) throw new Error('Erro ao gerar roteiro');
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        // Strip markdown code fences if present
+        const json = raw.replace(/```json?\n?/gi, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(json);
+        return parsed.slides.map((s: any) => ({ texto_principal: s.texto_principal, legenda_apoio: s.legenda_apoio }));
+    }
+
+    // ── Phase 2: Generate carousel images using the script ──
     async function generateCarousel() {
         setGeneratingCarousel(true);
         setCarouselSlides([]);
         setCarouselProgress(0);
         setActiveSlide(0);
+        setCarouselScript(null);
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) { setGeneratingCarousel(false); return; }
 
-        // Extract benefits from blocks
-        const benefits = blocks
-            .filter(bl => bl.label.toLowerCase().includes('beneficio') || bl.label.toLowerCase().includes('benefit') || bl.label.toLowerCase().includes('ponto'))
-            .map(bl => bl.content.split('\n')[0].replace(/^"|"/g, '').trim())
-            .filter(Boolean);
+        // Phase 1: Generate AIDA script
+        let script: Array<{ texto_principal: string; legenda_apoio?: string }>;
+        try {
+            setGeneratingScript(true);
+            script = await generateCarouselScript(slideCount);
+            setCarouselScript(script);
+        } catch (err: any) {
+            // Fallback: build a basic script from existing blocks if Gemini script fails
+            const rawHeadline = (blocks.find(bl => bl.label.toLowerCase().includes('headline'))?.content?.split('\n')[0]?.trim()) || briefing?.main_promise || 'Transforme sua vida agora';
+            const benefits = blocks.filter(bl => bl.label.toLowerCase().includes('beneficio') || bl.label.toLowerCase().includes('benefit')).map(bl => bl.content.split('\n')[0].trim());
+            script = Array.from({ length: slideCount }, (_, i) => {
+                if (i === 0) return { texto_principal: rawHeadline.substring(0, 55), legenda_apoio: 'Deslize para descobrir →' };
+                if (i === slideCount - 1) return { texto_principal: 'Pronto para começar?', legenda_apoio: 'Quero Começar' };
+                return { texto_principal: (benefits[i - 1] || briefing?.main_benefit || 'Benefício chave').substring(0, 55), legenda_apoio: undefined };
+            });
+            setCarouselScript(script);
+        } finally {
+            setGeneratingScript(false);
+        }
 
-        const rawHeadline = (blocks.find(bl =>
-            bl.label.toLowerCase().includes('headline') || bl.label.toLowerCase().includes('gancho')
-        )?.content?.split('\n')[0]?.replace(/^"|"|\.\*/g, '').trim())
-            || briefing?.main_promise || 'Transforme sua vida agora';
-        const hw = rawHeadline.trim().split(' ');
-        let headline = '';
-        for (const w of hw) { const c = headline ? headline + ' ' + w : w; if (c.length <= 35) headline = c; else break; }
-        if (!headline) headline = rawHeadline.substring(0, 35);
-
+        // Phase 2: Generate images slide by slide using script
         const slides: Array<{ base64: string; mimeType: string }> = [];
         for (let i = 0; i < slideCount; i++) {
             try {
-                const prompt = buildCarouselSlidePrompt(i, slideCount, headline, benefits, briefing);
+                const scriptSlide = script[i] || { texto_principal: `Slide ${i + 1}` };
+                const prompt = buildCarouselSlidePrompt(i, slideCount, scriptSlide, briefing);
                 const parts: any[] = uploadedPhoto
                     ? [{ inlineData: { mimeType: uploadedPhoto.mimeType, data: uploadedPhoto.base64 } }, { text: 'Use the person in this photo as the expert. ' + prompt }]
                     : [{ text: prompt }];
@@ -1040,7 +1106,30 @@ EXPERT: "${b.expert_name || ''}"`,
                                             </button>
                                         )}
                                     </div>
+                                    {generatingScript && (
+                                        <div className="flex items-center gap-2 text-xs text-violet-400 py-1">
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                            <span>Gerando roteiro narrativo AIDA...</span>
+                                        </div>
+                                    )}
+                                    {carouselScript && !generatingScript && (
+                                        <div className="rounded-xl bg-slate-900/60 border border-violet-500/20 p-3 space-y-2">
+                                            <p className="text-[10px] font-bold text-violet-400 uppercase tracking-widest">📋 Roteiro do Carrossel</p>
+                                            {carouselScript.map((s, i) => (
+                                                <div key={i} className="flex items-start gap-2">
+                                                    <span className="text-[10px] font-bold text-pink-400 w-5 shrink-0">
+                                                        {i === 0 ? '🎯' : i === carouselScript.length - 1 ? '🚀' : `0${i}`}
+                                                    </span>
+                                                    <div>
+                                                        <p className="text-xs text-white font-medium leading-tight">{s.texto_principal}</p>
+                                                        {s.legenda_apoio && <p className="text-[10px] text-slate-400 mt-0.5">{s.legenda_apoio}</p>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                     {generatingCarousel && (
+
                                         <div className="space-y-1">
                                             <div className="flex items-center justify-between text-xs text-slate-400">
                                                 <span>Gerando slides...</span><span>{carouselProgress}%</span>
