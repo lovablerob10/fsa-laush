@@ -314,16 +314,29 @@ ${buildBriefingContext(briefing, dossieContext)}
 URL DA FOTO DO EXPERT (Use esta URL como o \`src\` na hero image se apropriado):
 - ${briefing.expert_photo_url || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?q=80&w=1000&auto=format&fit=crop'}
 
-${stitchHtml ? `[ATENÇÃO CRÍTICA]: Use a base de código HTML/Tailwind abaixo, gerada por um UI Designer.
-Mantenha rigorosamente o design original (classes e estrutura), MAS REESCREVA E INJETE OS TEXTOS (Copy),
-GATILHOS, METADE DA FOTO DO EXPERT E FAÇA OS AJUSTES FINAIS PARA ALTA CONVERSÃO:
+${stitchHtml ? `[ATENÇÃO CRÍTICA]: Abaixo está um rascunho estrutural HTML gerado por um designer júnior (Stitch).
+Use isso APENAS como inspiração (wireframe). VOCÊ TEM LIBERDADE E OBRIGAÇÃO TOTAL DE REESCREVER O CÓDIGO para transformá-lo numa Landing Page Premium de alta conversão.
+FAÇA O SEGUINTE:
+- [COPY & ESTRUTURA]: Reescreva textos usando o Dossiê. Adicione novas seções se achar necessário (Ex: FAQs, Depoimentos, Sobre o Expert).
+- [UI UPGRADE MÁXIMO]: Aplique classes avançadas do Tailwind. Converta designs planos para Glassmorphism, Dark Mode profundo (bg-stone-950), bordas iluminadas (ring/shadow).
+- [FORMS OBRIGATÓRIOS]: A página DEVE TER um formulário real e perfeitamente estilizado para captura de lead (Nome, Email, WhatsApp + Botão CTA pulsante). Se o rascunho não tiver, CRIE UM DO ZERO na Hero ou numa seção dedicada.
+- [GSAP & PARALLAX]: Injete as ferramentas (\`gsap.min.js\`, \`ScrollTrigger.min.js\`) no final do <body> e escreva **você mesmo um bloco <script>** com animações reais de Parallax na Hero e Fade-in nas seções ao rolar a página. Seja criativo como um dev sênior.
 \`\`\`html
 ${stitchHtml}
 \`\`\`
 ` : ''}
-TAREFA: ${userInput || 'Crie uma página de captura focada na promessa principal'}
 
-Aja com genialidade. Retorne APENAS o código HTML completo.`,
+DIRETRIZES TÉCNICAS INEGOCIÁVEIS:
+1. Seu output NÃO PODE conter marcadores markdown (como \`\`\`html ou \`\`\`). Retorne apenas e unicamente o documento a partir de <!DOCTYPE html> até </html>.
+2. Stack técnica obrigatória via CDN (adicionar no head/body): TailwindCSS Script, GSAP + ScrollTrigger, Iconify.
+3. O visual DEVE ser Premium, nível agência de ponta: fundo escuro (black/stone-950), glowing effects, tipografia moderna (Inter/Outfit via Google Fonts) e formulário legível de captura de Leads.
+4. Todo script ou estilo deve estar INLINE ou em blocos <style>/<script> no mesmo arquivo.
+5. Incorpore a foto do expert obrigatoriamente e estilize para harmonizar com fundo dark.
+6. A página não pode ser apenas um design. Ela precisa ser uma FERRAMENTA DE CONVERSÃO. Adicione botões flutuantes ou chamadas consistentes.
+
+TAREFA ESPECÍFICA: ${userInput || 'Crie uma página de captura focada na promessa principal de conversão.'}
+
+Inicie imediatamente. Seu output é apenas código.`,
 };
 
 // =============================================
