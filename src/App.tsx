@@ -14,7 +14,10 @@ import { ActionCalendar } from '@/components/actions/ActionCalendar';
 import { FrameworkManager } from '@/components/frameworks/FrameworkManager';
 import { AIAgents } from '@/components/ai-agents/AIAgents';
 import { ConciergeOnboarding } from '@/components/onboarding/ConciergeOnboarding';
+import { NotionCallback } from '@/components/integrations/NotionCallback';
+import { Settings } from '@/components/settings/Settings';
 import { useUIStore, useAuthStore } from '@/store';
+
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 import './App.css';
@@ -119,9 +122,10 @@ function AppContent() {
       case 'onboarding': return <ConciergeOnboarding />;
       case 'templates': return <ComingSoon title="Templates de Mensagem" />;
       case 'analytics': return <ComingSoon title="Analytics Avançado" />;
-      case 'settings': return <ComingSoon title="Configurações" />;
+      case 'settings': return <Settings />;
       default: return <Dashboard />;
     }
+
   };
 
   return (
@@ -152,6 +156,11 @@ function App() {
   const [showLogin, setShowLogin] = useState(false);
 
   if (loading) return <LoadingScreen />;
+
+  // Intercept Notion OAuth Callback before checking Auth (since Auth might be initializing)
+  const isNotionCallback = window.location.pathname.startsWith('/integrations/notion/callback');
+  if (isNotionCallback) return <NotionCallback />;
+
   if (isAuthenticated) return <AppContent />;
 
   // Not authenticated: show landing or login

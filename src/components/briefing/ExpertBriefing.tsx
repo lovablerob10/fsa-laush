@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Save, Sparkles, Loader2, ChevronRight, ChevronLeft, Check, Plus, X,
-  User, Package, Target, Lightbulb, Palette, Wand2, Calendar, ArrowRight
+  User, Package, Target, Lightbulb, Palette, Wand2, Calendar, ArrowRight,
+  ExternalLink
 } from 'lucide-react';
+
 import { useAuthStore, useUIStore } from '@/store';
 import { briefingService, generateWithGemini, generateFieldSuggestion, generate7WeekPlan, BriefingData } from '@/lib/services/briefingService';
 import { supabase } from '@/lib/supabase/client';
@@ -102,6 +104,8 @@ export function ExpertBriefing() {
   const [planGenerated, setPlanGenerated] = useState(false);
   const [planGenerating, setPlanGenerating] = useState(false);
   const [planError, setPlanError] = useState('');
+  const [exportingNotion, setExportingNotion] = useState<string | null>(null);
+
 
   const [data, setData] = useState<BriefingData>({
     tenant_id: tenantId || '',
@@ -144,6 +148,25 @@ export function ExpertBriefing() {
     } catch (err: any) { alert('Erro: ' + err.message); }
     finally { setGenerating(null); }
   }
+
+  async function handleExportToNotion(type: string, titleStr: string, content: string) {
+    setExportingNotion(type);
+    try {
+      const { data: resData, error } = await supabase.functions.invoke('notion-export', {
+        body: { title: titleStr, content }
+      });
+      if (error) throw error;
+      if (resData?.error) throw new Error(resData.error);
+
+      alert('✅ Conteúdo exportado com sucesso para o seu Workspace do Notion!\nVerifique a sua conta.');
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao exportar para Notion: ' + (err.message || 'Verifique se você conectou a sua conta em Configurações.'));
+    } finally {
+      setExportingNotion(null);
+    }
+  }
+
 
   async function handleGeneratePlan() {
     if (!tenantId) return;
@@ -431,11 +454,22 @@ export function ExpertBriefing() {
                   <div className="bg-secondary/30 rounded-xl p-4 border border-border/30">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-violet-400">Gerado por Gemini 2.5 Pro</span>
-                      <button onClick={() => navigator.clipboard.writeText(generatedContent[item.type])} className="text-xs text-muted-foreground hover:text-violet-400 transition-colors">📋 Copiar</button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => handleExportToNotion(item.type, `${data.expert_name || 'Expert'} - ${item.label}`, generatedContent[item.type])}
+                          disabled={exportingNotion === item.type}
+                          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-white rounded-md transition-colors disabled:opacity-50"
+                        >
+                          {exportingNotion === item.type ? <Loader2 className="w-3 h-3 animate-spin text-violet-400" /> : <img src="https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png" className="w-3 h-3" alt="Notion" />}
+                          Exportar
+                        </button>
+                        <button onClick={() => navigator.clipboard.writeText(generatedContent[item.type])} className="text-xs text-muted-foreground hover:text-violet-400 transition-colors">📋 Copiar</button>
+                      </div>
                     </div>
                     <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">{generatedContent[item.type]}</pre>
                   </div>
                 )}
+
               </div>
             ))}
 
