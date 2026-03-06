@@ -9,6 +9,7 @@ import { useAuthStore, useUIStore } from '@/store';
 import { briefingService, generateWithGemini, generateFieldSuggestion, generate7WeekPlan, BriefingData } from '@/lib/services/briefingService';
 import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { NotionPagePicker } from '@/components/integrations/NotionPagePicker';
 
 const STEPS = [
   { id: 1, title: 'Dados do Expert', icon: User, desc: 'Quem está vendendo' },
@@ -105,6 +106,7 @@ export function ExpertBriefing() {
   const [planGenerating, setPlanGenerating] = useState(false);
   const [planError, setPlanError] = useState('');
   const [exportingNotion, setExportingNotion] = useState<string | null>(null);
+  const [notionPicker, setNotionPicker] = useState<{ type: string; title: string; content: string } | null>(null);
 
 
   const [data, setData] = useState<BriefingData>({
@@ -149,22 +151,8 @@ export function ExpertBriefing() {
     finally { setGenerating(null); }
   }
 
-  async function handleExportToNotion(type: string, titleStr: string, content: string) {
-    setExportingNotion(type);
-    try {
-      const { data: resData, error } = await supabase.functions.invoke('notion-export', {
-        body: { title: titleStr, content }
-      });
-      if (error) throw error;
-      if (resData?.error) throw new Error(resData.error);
-
-      alert('✅ Conteúdo exportado com sucesso para o seu Workspace do Notion!\nVerifique a sua conta.');
-    } catch (err: any) {
-      console.error(err);
-      alert('Erro ao exportar para Notion: ' + (err.message || 'Verifique se você conectou a sua conta em Configurações.'));
-    } finally {
-      setExportingNotion(null);
-    }
+  function handleExportToNotion(type: string, titleStr: string, content: string) {
+    setNotionPicker({ type, title: titleStr, content });
   }
 
 
@@ -278,6 +266,15 @@ export function ExpertBriefing() {
 
   return (
     <div className="min-h-screen">
+      {/* Notion Page Picker Modal */}
+      {notionPicker && tenantId && (
+        <NotionPagePicker
+          tenantId={tenantId}
+          exportTitle={notionPicker.title}
+          exportContent={notionPicker.content}
+          onClose={() => setNotionPicker(null)}
+        />
+      )}
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border/60">
         <div className="px-6 py-4 flex items-center justify-between max-w-5xl mx-auto">

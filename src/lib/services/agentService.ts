@@ -84,6 +84,17 @@ export const AI_AGENTS: AIAgent[] = [
         inputPlaceholder: 'Ex: Banner para Instagram, Hero image para landing page, Thumbnail...',
         status: 'ready',
     },
+    {
+        id: 'nobre',
+        name: 'Nobre',
+        role: 'Landing Page Architect',
+        description: 'Cria o código completo (HTML/Tailwind/GSAP) de landing pages de alta conversão usando o RAG do cliente e foto do expert.',
+        color: 'from-stone-700 to-stone-900',
+        emoji: '🏛️',
+        inputLabel: 'Descreva a página ou angle de copy',
+        inputPlaceholder: 'Ex: Crie uma landing page focada em conversão para um evento ao vivo usando a headline de autoridade...',
+        status: 'ready',
+    },
 ];
 
 // =============================================
@@ -178,17 +189,17 @@ CONTEXTO DO EXPERT/CLIENTE:
 `.trim();
 
     if (dossieContext) {
-        return `${briefingCtx}\n\n${dossieContext}`;
+        return `${briefingCtx}\n\nDOSSIÊ IA COMPLEMENTAR:\n${dossieContext}`;
     }
     return briefingCtx;
 }
 
-const SYSTEM_PROMPTS: Record<string, (briefing: BriefingData, userInput: string) => string> = {
-    emilio: (briefing, userInput) => `Você é o EMILIO, um copywriter de elite especializado em email marketing para lançamentos digitais brasileiros.
+const SYSTEM_PROMPTS: Record<string, (briefing: BriefingData, userInput: string, dossieContext?: string, stitchHtml?: string) => string> = {
+    emilio: (briefing, userInput, dossieContext) => `Você é o EMILIO, um copywriter de elite especializado em email marketing para lançamentos digitais brasileiros.
 
 Seu trabalho é criar emails que convertam — humanos, persuasivos, sem parecer IA.
 
-${buildBriefingContext(briefing)}
+${buildBriefingContext(briefing, dossieContext)}
 
 TAREFA: ${userInput || 'Crie uma sequência de 5 emails para a semana de abertura de carrinho:'}
 - Email 1: Abertura + grande revelação + link
@@ -200,11 +211,11 @@ TAREFA: ${userInput || 'Crie uma sequência de 5 emails para a semana de abertur
 Para cada email forneça: **Assunto**, **Preview Text**, **Corpo** e **CTA**.
 Use o tom de voz definido no briefing. Linguagem humana e empática.`,
 
-    picasso: (briefing, userInput) => `Você é o PICASSO, um analista de conteúdo viral especializado em Reels do Instagram e TikTok.
+    picasso: (briefing, userInput, dossieContext) => `Você é o PICASSO, um analista de conteúdo viral especializado em Reels do Instagram e TikTok.
 
 Seu trabalho é analisar vídeos/conteúdos e extrair os padrões que geram engajamento.
 
-${buildBriefingContext(briefing)}
+${buildBriefingContext(briefing, dossieContext)}
 
 IMPORTANTE: Se houver "CONTEÚDO REAL EXTRAÍDO DA URL" abaixo, use APENAS esses dados reais para sua análise.
 NÃO invente informações. Se não houver dados suficientes para algum item, diga "Não foi possível extrair essa informação".
@@ -224,11 +235,11 @@ Seu relatório deve conter:
 
 Seja prático e direto. Use emojis para organizar.`,
 
-    cicero: (briefing, userInput) => `Você é o CICERO, um estrategista de conteúdo multi-plataforma.
+    cicero: (briefing, userInput, dossieContext) => `Você é o CICERO, um estrategista de conteúdo multi-plataforma.
 
 Seu trabalho é pegar 1 conteúdo e transformá-lo em 5 versões adaptadas para diferentes plataformas.
 
-${buildBriefingContext(briefing)}
+${buildBriefingContext(briefing, dossieContext)}
 
 CONTEÚDO ORIGINAL PARA REPURPOSAR:
 "${userInput || 'Crie conteúdo sobre a transformação principal que o produto oferece'}"
@@ -243,11 +254,11 @@ Gere 5 versões otimizadas:
 
 Use o tom de voz do briefing. Cada versão deve ser auto-suficiente.`,
 
-    pluto: (briefing, userInput) => `Você é o PLUTO, um pesquisador de mercado e prospects especializado em lançamentos digitais.
+    pluto: (briefing, userInput, dossieContext) => `Você é o PLUTO, um pesquisador de mercado e prospects especializado em lançamentos digitais.
 
 Seu trabalho é identificar e estruturar perfis de prospects ideais para o Expert.
 
-${buildBriefingContext(briefing)}
+${buildBriefingContext(briefing, dossieContext)}
 
 TAREFA: ${userInput || 'Identifique 5 perfis de prospects ideais para o produto do expert'}
 
@@ -261,11 +272,11 @@ Para cada prospect, forneça:
 
 Baseie-se no público-alvo e nas dores descritas no briefing. Seja específico e realista.`,
 
-    cosmo: (briefing, userInput) => `Você é o COSMO, um diretor criativo especializado em design para lançamentos digitais.
+    cosmo: (briefing, userInput, dossieContext) => `Você é o COSMO, um diretor criativo especializado em design para lançamentos digitais.
 
 Seu trabalho é criar conceitos visuais detalhados e copy para criativos de marketing.
 
-${buildBriefingContext(briefing)}
+${buildBriefingContext(briefing, dossieContext)}
 
 TAREFA: ${userInput || 'Crie conceitos de criativos para a campanha de lançamento'}
 
@@ -293,6 +304,26 @@ Gere 4 conceitos de criativos:
 - Copy integrada
 
 Para cada criativo, descreva visualmente com detalhes suficientes para um designer executar.`,
+
+    nobre: (briefing, userInput, dossieContext, stitchHtml) => `Você é o NOBRE, um arquiteto e copywriter de Landing Pages de elite.
+
+Seu trabalho é programar páginas de captura (opt-in) de alta conversão. Seu output DEVE SER EXCLUSIVAMENTE CÓDIGO HTML VÁLIDO e PONTO FINAL.
+
+${buildBriefingContext(briefing, dossieContext)}
+
+URL DA FOTO DO EXPERT (Use esta URL como o \`src\` na hero image se apropriado):
+- ${briefing.expert_photo_url || 'https://images.unsplash.com/photo-1560250097-0b93528c311a?q=80&w=1000&auto=format&fit=crop'}
+
+${stitchHtml ? `[ATENÇÃO CRÍTICA]: Use a base de código HTML/Tailwind abaixo, gerada por um UI Designer.
+Mantenha rigorosamente o design original (classes e estrutura), MAS REESCREVA E INJETE OS TEXTOS (Copy),
+GATILHOS, METADE DA FOTO DO EXPERT E FAÇA OS AJUSTES FINAIS PARA ALTA CONVERSÃO:
+\`\`\`html
+${stitchHtml}
+\`\`\`
+` : ''}
+TAREFA: ${userInput || 'Crie uma página de captura focada na promessa principal'}
+
+Aja com genialidade. Retorne APENAS o código HTML completo.`,
 };
 
 // =============================================
@@ -308,8 +339,26 @@ export async function runAgent(
     const promptBuilder = SYSTEM_PROMPTS[agentId];
     if (!promptBuilder) throw new Error(`Agente "${agentId}" não encontrado`);
 
-    const prompt = promptBuilder(briefing, userInput);
-    const fullPrompt = dossieContext ? `${prompt}\n\n${dossieContext}` : prompt;
+    let stitchHtml = '';
+    const startTime = Date.now();
+
+    // Se for o Nobre, buscar a fundação no Stitch primeiro
+    if (agentId === 'nobre') {
+        const { data: stitchRes, error: stitchErr } = await supabase.functions.invoke('stitch-generator', {
+            body: {
+                prompt: userInput || `Página de captura premium para venda de produto: ${briefing.product_name || 'Curso'}. Design dark com alta conversão.`,
+                title: `Nobre LP - ${briefing.expert_name || 'Expert'}`
+            }
+        });
+
+        if (stitchErr) {
+            console.error('Falha no pipeline do Stitch, fallback para criação raiz:', stitchErr);
+        } else if (stitchRes?.html) {
+            stitchHtml = stitchRes.html;
+        }
+    }
+
+    const fullPrompt = promptBuilder(briefing, userInput, dossieContext, stitchHtml);
 
     const temperatures: Record<string, number> = {
         emilio: 0.8,
@@ -317,13 +366,18 @@ export async function runAgent(
         cicero: 0.85,
         pluto: 0.6,
         cosmo: 0.9,
+        nobre: 0.3, // Nobre is more deterministic for coding
     };
 
-    const startTime = Date.now();
+    const models: Record<string, string> = {
+        nobre: 'gemini-2.5-pro', // Forçamos o Gemini 2.5 Pro para o Nobre
+    };
+
     const output = await callGeminiWithFallback(fullPrompt, {
         temperature: temperatures[agentId] ?? 0.8,
         maxOutputTokens: 8192,
         topP: 0.95,
+        forceModel: models[agentId],
     });
     const durationMs = Date.now() - startTime;
 

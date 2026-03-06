@@ -1,8 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
     Bot, Loader2, Copy, Check, X, Send, Clock, Zap, ChevronRight,
-    Mail, Film, Pen, Search, Palette, Eye, Pencil, Trash2, ArrowLeft, Database
+    Mail, Film, Pen, Search, Palette, Eye, Pencil, Trash2, ArrowLeft, Database, ExternalLink,
+    LayoutTemplate, Image, FileText, Link as LinkIcon, Download
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
+import { NotionPagePicker } from '@/components/integrations/NotionPagePicker';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store';
 import { briefingService, BriefingData } from '@/lib/services/briefingService';
@@ -19,6 +22,7 @@ const AGENT_ICONS: Record<string, React.ElementType> = {
     cicero: Pen,
     pluto: Search,
     cosmo: Palette,
+    nobre: LayoutTemplate,
 };
 
 export function AIAgents() {
@@ -38,6 +42,7 @@ export function AIAgents() {
     const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
     const [generatedImage, setGeneratedImage] = useState<{ base64: string; mimeType: string } | null>(null);
     const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+    const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
     const titleInputRef = useRef<HTMLInputElement>(null);
 
     // Load briefing + dossiê on first interaction
@@ -146,6 +151,10 @@ export function AIAgents() {
         }
     };
 
+    const [exportingNotion, setExportingNotion] = useState(false);
+    const [notionExportDone, setNotionExportDone] = useState(false);
+    const [notionPicker, setNotionPicker] = useState<{ title: string; content: string } | null>(null);
+
     const handleCopy = () => {
         const textToCopy = viewingHistoryId
             ? history.find(h => h.id === viewingHistoryId)?.output
@@ -155,6 +164,22 @@ export function AIAgents() {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }
+    };
+
+    const handleExportNotion = (text: string, titleStr: string) => {
+        setNotionPicker({ title: titleStr, content: text });
+    };
+
+    const handleDownloadHtml = (htmlContent: string, title: string) => {
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'pagina-gerada'}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
     const handleViewHistory = (exec: AgentExecutionDB) => {
@@ -219,6 +244,15 @@ export function AIAgents() {
 
     return (
         <div className="min-h-screen">
+            {/* Notion Page Picker Modal */}
+            {notionPicker && tenantId && (
+                <NotionPagePicker
+                    tenantId={tenantId}
+                    exportTitle={notionPicker.title}
+                    exportContent={notionPicker.content}
+                    onClose={() => setNotionPicker(null)}
+                />
+            )}
             {/* Header */}
             <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border">
                 <div className="px-6 py-4 flex items-center justify-between max-w-7xl mx-auto">
@@ -348,9 +382,28 @@ export function AIAgents() {
 
                                 {/* Input area */}
                                 <div className="p-6 border-b border-border">
-                                    <label className="block text-sm font-medium text-foreground mb-2">
-                                        {selectedAgent.inputLabel || 'Instrução'}
-                                    </label>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-sm font-medium text-foreground">
+                                            {selectedAgent.inputLabel || 'Instrução'}
+                                        </label>
+
+                                        {/* Anexos rápidos sugeridos pelo usuário */}
+                                        <div className="flex items-center gap-2">
+                                            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                                                <Image className="w-3.5 h-3.5" />
+                                                Adicionar Imagem
+                                            </button>
+                                            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                                                <FileText className="w-3.5 h-3.5" />
+                                                Adicionar Documento
+                                            </button>
+                                            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                                                <LinkIcon className="w-3.5 h-3.5" />
+                                                Adicionar Link
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     <div className="flex gap-3">
                                         <textarea
                                             value={userInput}
@@ -456,6 +509,9 @@ export function AIAgents() {
                                     {viewingHistoryId && !isRunning && (() => {
                                         const histItem = history.find(h => h.id === viewingHistoryId);
                                         if (!histItem) return null;
+
+                                        const isHtml = histItem.output.includes('<html') || histItem.output.includes('<!DOCTYPE html>') || histItem.agent_id === 'nobre';
+
                                         return (
                                             <div>
                                                 <div className="flex items-center justify-between mb-3">
@@ -467,51 +523,157 @@ export function AIAgents() {
                                                             <ArrowLeft className="w-3.5 h-3.5" />
                                                             Voltar
                                                         </button>
-                                                        <span className="text-xs font-semibold text-amber-500 dark:text-amber-400 flex items-center gap-1.5">
+                                                        <span className="text-xs font-semibold text-amber-500 dark:text-amber-400 flex items-center gap-1.5 border-l border-border pl-2">
                                                             <Eye className="w-3.5 h-3.5" />
                                                             Visualizando histórico — {histItem.title || histItem.agent_name}
                                                         </span>
                                                     </div>
-                                                    <button
-                                                        onClick={handleCopy}
-                                                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-500 transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
-                                                    >
-                                                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                                        {copied ? 'Copiado!' : 'Copiar'}
-                                                    </button>
+                                                    <div className="flex items-center gap-1">
+                                                        {isHtml && (
+                                                            <button
+                                                                onClick={() => handleDownloadHtml(histItem.output, histItem.title || histItem.agent_name)}
+                                                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-emerald-500 transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
+                                                                title="Baixar HTML"
+                                                            >
+                                                                <Download className="w-3.5 h-3.5" />
+                                                                Baixar
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={handleCopy}
+                                                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-500 transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
+                                                        >
+                                                            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                                            {copied ? 'Copiado!' : 'Copiar'}
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <div className="bg-secondary/50 rounded-xl p-5 border border-border">
-                                                    <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[500px] overflow-y-auto">
-                                                        {histItem.output}
-                                                    </pre>
-                                                </div>
+
+                                                {isHtml && (
+                                                    <div className="flex items-center justify-center mb-3">
+                                                        <div className="flex bg-secondary p-1 rounded-xl border border-border inline-flex">
+                                                            <button
+                                                                onClick={() => setViewMode('preview')}
+                                                                className={cn(
+                                                                    "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2",
+                                                                    viewMode === 'preview' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                                                                )}
+                                                            >
+                                                                <Eye className="w-3.5 h-3.5" />
+                                                                Visualizar Navegador
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setViewMode('code')}
+                                                                className={cn(
+                                                                    "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2",
+                                                                    viewMode === 'code' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                                                                )}
+                                                            >
+                                                                <LayoutTemplate className="w-3.5 h-3.5" />
+                                                                Ver Código HTML
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {isHtml && viewMode === 'preview' ? (
+                                                    <div className="bg-white rounded-xl border border-border overflow-hidden h-[600px] w-full">
+                                                        <iframe
+                                                            srcDoc={histItem.output}
+                                                            title="Preview"
+                                                            className="w-full h-full border-0 bg-white"
+                                                            sandbox="allow-scripts allow-same-origin"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="bg-secondary/50 rounded-xl p-5 border border-border">
+                                                        <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[500px] overflow-y-auto">
+                                                            {histItem.output}
+                                                        </pre>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })()}
 
                                     {/* New result */}
-                                    {result && !isRunning && !viewingHistoryId && (
-                                        <div>
-                                            <div className="flex items-center justify-between mb-3">
-                                                <span className="text-xs font-semibold text-violet-500 dark:text-violet-400 flex items-center gap-1.5">
-                                                    <Zap className="w-3.5 h-3.5" />
-                                                    Gerado por {selectedAgent.name} via Gemini 2.5 Flash
-                                                </span>
-                                                <button
-                                                    onClick={handleCopy}
-                                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-500 transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
-                                                >
-                                                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                                    {copied ? 'Copiado!' : 'Copiar'}
-                                                </button>
+                                    {result && !isRunning && !viewingHistoryId && (() => {
+                                        const isHtml = result.includes('<html') || result.includes('<!DOCTYPE html>') || selectedAgent.id === 'nobre';
+
+                                        return (
+                                            <div>
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <span className="text-xs font-semibold text-violet-500 dark:text-violet-400 flex items-center gap-1.5">
+                                                        <Zap className="w-3.5 h-3.5" />
+                                                        Gerado por {selectedAgent.name} via Gemini 2.5 {selectedAgent.id === 'nobre' ? 'Pro' : 'Flash'}
+                                                    </span>
+                                                    <div className="flex items-center gap-1">
+                                                        {isHtml && (
+                                                            <button
+                                                                onClick={() => handleDownloadHtml(result, userInput || selectedAgent.name)}
+                                                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-emerald-500 transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
+                                                                title="Baixar HTML"
+                                                            >
+                                                                <Download className="w-3.5 h-3.5" />
+                                                                Baixar
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={handleCopy}
+                                                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-violet-500 transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
+                                                        >
+                                                            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                                            {copied ? 'Copiado!' : 'Copiar'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {isHtml && (
+                                                    <div className="flex items-center justify-center mb-3">
+                                                        <div className="flex bg-secondary p-1 rounded-xl border border-border inline-flex">
+                                                            <button
+                                                                onClick={() => setViewMode('preview')}
+                                                                className={cn(
+                                                                    "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2",
+                                                                    viewMode === 'preview' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                                                                )}
+                                                            >
+                                                                <Eye className="w-3.5 h-3.5" />
+                                                                Visualizar Navegador
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setViewMode('code')}
+                                                                className={cn(
+                                                                    "px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-2",
+                                                                    viewMode === 'code' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                                                                )}
+                                                            >
+                                                                <LayoutTemplate className="w-3.5 h-3.5" />
+                                                                Ver Código HTML
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {isHtml && viewMode === 'preview' ? (
+                                                    <div className="bg-white rounded-xl border border-border overflow-hidden h-[600px] w-full">
+                                                        <iframe
+                                                            srcDoc={result}
+                                                            title="Preview"
+                                                            className="w-full h-full border-0 bg-white"
+                                                            sandbox="allow-scripts allow-same-origin"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="bg-secondary/50 rounded-xl p-5 border border-border">
+                                                        <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[500px] overflow-y-auto">
+                                                            {result}
+                                                        </pre>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="bg-secondary/50 rounded-xl p-5 border border-border">
-                                                <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-[500px] overflow-y-auto">
-                                                    {result}
-                                                </pre>
-                                            </div>
-                                        </div>
-                                    )}
+                                        )
+                                    })()}
 
                                     {!result && !isRunning && !viewingHistoryId && (
                                         <div className="flex items-center justify-center py-16 text-center">

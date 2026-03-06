@@ -7,13 +7,15 @@ const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash'];
 
 export async function callGeminiWithFallback(
     prompt: string,
-    config: { temperature?: number; maxOutputTokens?: number; topP?: number } = {}
+    config: { temperature?: number; maxOutputTokens?: number; topP?: number; forceModel?: string } = {}
 ): Promise<string> {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (!apiKey) throw new Error('VITE_GEMINI_API_KEY não configurada no .env');
 
     let lastError: Error | null = null;
-    for (const model of GEMINI_MODELS) {
+    const modelsToTry = config.forceModel ? [config.forceModel] : GEMINI_MODELS;
+
+    for (const model of modelsToTry) {
         try {
             const response = await fetch(
                 `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,

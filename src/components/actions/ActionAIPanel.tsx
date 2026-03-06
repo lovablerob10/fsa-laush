@@ -3,7 +3,7 @@ import {
     X, Sparkles, Loader2, Copy, Check, RefreshCw, ChevronLeft, ChevronRight,
     Instagram, Mail, MessageCircle, Video, FileText,
     TrendingUp, Wand2, ChevronDown, ChevronUp,
-    Image, Download, Palette, Zap, Type, Save, Clock
+    Image, Download, Palette, Zap, Type, Save, Clock, ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { briefingService } from '@/lib/services/briefingService';
 import { supabase } from '@/lib/supabase/client';
 import { useAuthStore } from '@/store';
+import { NotionPagePicker } from '@/components/integrations/NotionPagePicker';
 
 interface Action {
     id: string;
@@ -289,6 +290,16 @@ export function ActionAIPanel({ action, onClose }: Props) {
     const [savedAt, setSavedAt] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [savedConfirm, setSavedConfirm] = useState(false);
+    const [exportingNotion, setExportingNotion] = useState(false);
+    const [notionDone, setNotionDone] = useState(false);
+    const [notionPicker, setNotionPicker] = useState<{ title: string; content: string } | null>(null);
+
+    function exportAllToNotion() {
+        if (!activeTenant?.id || blocks.length === 0) return;
+        const allText = blocks.map(b => `## ${b.label}\n${b.content}`).join('\n\n');
+        const title = `${action.title} — ${typeConfig?.label || action.type}`;
+        setNotionPicker({ title, content: allText });
+    }
 
     const typeConfig = ACTION_TYPE_CONFIG[action.type];
     const Icon = typeConfig?.icon || Sparkles;
@@ -437,7 +448,7 @@ export function ActionAIPanel({ action, onClose }: Props) {
         const palette = styleMap[imageStyle] || styleMap.profissional;
         const position = slideIndex === 0 ? 'first'
             : slideIndex === totalSlides - 1 ? 'last'
-            : 'middle';
+                : 'middle';
 
         const slideConfigs = {
             first: {
@@ -584,6 +595,15 @@ EXPERT: "${b.expert_name || ''}"`,
 
     return (
         <div className="fixed inset-0 z-50 flex">
+            {/* Notion Page Picker Modal */}
+            {notionPicker && activeTenant?.id && (
+                <NotionPagePicker
+                    tenantId={activeTenant.id}
+                    exportTitle={notionPicker.title}
+                    exportContent={notionPicker.content}
+                    onClose={() => setNotionPicker(null)}
+                />
+            )}
             {/* Backdrop */}
             <div className="flex-1 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
@@ -730,6 +750,15 @@ EXPERT: "${b.expert_name || ''}"`,
                                             <button onClick={copyAll} className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors">
                                                 {copiedKey === '__all__' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                                                 {copiedKey === '__all__' ? 'Copiado!' : 'Copiar tudo'}
+                                            </button>
+                                            <button
+                                                onClick={exportAllToNotion}
+                                                disabled={exportingNotion}
+                                                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-400 transition-colors"
+                                                title="Exportar tudo para Notion"
+                                            >
+                                                {notionDone ? <Check className="w-3 h-3 text-emerald-400" /> : exportingNotion ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
+                                                {notionDone ? 'Exportado!' : 'Notion'}
                                             </button>
                                         </div>
                                     </div>
@@ -1056,28 +1085,28 @@ EXPERT: "${b.expert_name || ''}"`,
             </div>
         </div>
     );
-{/* ── PROPORÇÃO DA IMAGEM ── */}
-<div className="space-y-2">
-    <p className="text-xs font-semibold text-slate-300">PROPORÇÃO DA IMAGEM</p>
-    <div className="grid grid-cols-5 gap-1.5">
-        {(['auto', '1:1', '4:5', '9:16', '16:9'] as AspectRatio[]).map(r => {
-            const cfg = ASPECT_CONFIGS[r];
-            return (
-                <button
-                    key={r}
-                    onClick={() => setAspectRatio(r)}
-                    className={cn(
-                        'flex flex-col items-center gap-0.5 p-2 rounded-lg border text-center transition-all',
-                        aspectRatio === r
-                            ? 'border-violet-500 bg-violet-500/10 text-violet-300'
-                            : 'border-slate-700/40 text-slate-400 hover:border-violet-500/40'
-                    )}
-                >
-                    <span className="text-[11px] font-bold">{cfg.label}</span>
-                    <span className="text-[9px] opacity-70 leading-tight">{r === 'auto' ? 'IA decide' : r === '1:1' ? 'Feed' : r === '4:5' ? 'Retrato' : r === '9:16' ? 'Story' : 'Capa'}</span>
-                </button>
-            );
-        })}
+    {/* ── PROPORÇÃO DA IMAGEM ── */ }
+    <div className="space-y-2">
+        <p className="text-xs font-semibold text-slate-300">PROPORÇÃO DA IMAGEM</p>
+        <div className="grid grid-cols-5 gap-1.5">
+            {(['auto', '1:1', '4:5', '9:16', '16:9'] as AspectRatio[]).map(r => {
+                const cfg = ASPECT_CONFIGS[r];
+                return (
+                    <button
+                        key={r}
+                        onClick={() => setAspectRatio(r)}
+                        className={cn(
+                            'flex flex-col items-center gap-0.5 p-2 rounded-lg border text-center transition-all',
+                            aspectRatio === r
+                                ? 'border-violet-500 bg-violet-500/10 text-violet-300'
+                                : 'border-slate-700/40 text-slate-400 hover:border-violet-500/40'
+                        )}
+                    >
+                        <span className="text-[11px] font-bold">{cfg.label}</span>
+                        <span className="text-[9px] opacity-70 leading-tight">{r === 'auto' ? 'IA decide' : r === '1:1' ? 'Feed' : r === '4:5' ? 'Retrato' : r === '9:16' ? 'Story' : 'Capa'}</span>
+                    </button>
+                );
+            })}
+        </div>
     </div>
-</div>
 }

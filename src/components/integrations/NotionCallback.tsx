@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { useAuthStore, useUIStore } from '@/store';
+import { useUIStore } from '@/store';
 
 export function NotionCallback() {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [errorMessage, setErrorMessage] = useState('');
     const [workspaceName, setWorkspaceName] = useState('');
     const { setCurrentPage } = useUIStore();
-    const { activeTenant } = useAuthStore() as any;
+    const hasProcessed = useRef(false); // Guard against double execution (React StrictMode)
 
     useEffect(() => {
+        if (hasProcessed.current) return; // Already processing or processed — bail out
+        hasProcessed.current = true;
+
         const processCallback = async () => {
             try {
                 const urlParams = new URLSearchParams(window.location.search);
@@ -25,44 +28,58 @@ export function NotionCallback() {
                     throw new Error('Código de autorização não encontrado na URL.');
                 }
 
-                // O Notion faz um redirecionamento externo que recarrega nosso SPA.
-                // Precisamos garantir que o Supabase restaurou a sessão no LocalStorage ANTES
-                // de chamar a Edge Function, senão o Kong Gateway retorna 401 (Invalid JWT).
+                // Aguardar a sessão do Supabase ser restaurada após o redirect externo
                 let currentSession = null;
-                for (let i = 0; i < 10; i++) {
+                for (let i = 0; i < 15; i++) {
                     const { data } = await supabase.auth.getSession();
                     if (data?.session) {
                         currentSession = data.session;
                         break;
                     }
-                    console.log('Aguardando restauração da sessão Supabase...');
-                    await new Promise(res => setTimeout(res, 500));
+                    await new Promise(res => setTimeout(res, 400));
                 }
 
                 if (!currentSession) {
-                    throw new Error('Sessão expirada ou não restaurada. Por favor, volte ao Dashboard, faça login se necessário e tente novamente.');
+                    throw new Error('Sessão expirada. Volte ao Dashboard, faça login e tente novamente.');
                 }
 
+                // Buscar tenant_id diretamente do banco usando o user.id da sessão
+                const userId = currentSession.user.id;
+                const { data: userData, error: userError } = await supabase
+                    .from('users')
+                    .select('tenant_id')
+                    .eq('id', userId)
+                    .returns<{ tenant_id: string }[]>()
+                    .single();
+
+                const tenantId = (userData as { tenant_id: string } | null)?.tenant_id;
+
+                if (userError || !tenantId) {
+                    throw new Error(`Não foi possível identificar seu tenant (user_id: ${userId}). Entre em contato com o suporte.`);
+                }
                 const redirectUri = `${window.location.origin}/integrations/notion/callback`;
 
                 const { data, error: invokeError } = await supabase.functions.invoke('notion-auth', {
-                    body: { code, redirect_uri: redirectUri },
+                    body: {
+                        code,
+                        redirect_uri: redirectUri,
+                        tenant_id: tenantId
+                    },
                     headers: {
                         Authorization: `Bearer ${currentSession.access_token}`
                     }
                 });
 
                 if (invokeError) throw invokeError;
-                if (data?.error) throw new Error(data.error.message || JSON.stringify(data.error));
+                if (data?.error) throw new Error(data.error);
 
                 setStatus('success');
                 if (data?.workspace_name) setWorkspaceName(data.workspace_name);
 
-                // Limpa a URL e redireciona para o dashboard após 3 segundos
+                // Redireciona para o dashboard após 2 segundos
                 setTimeout(() => {
-                    window.history.replaceState({}, document.title, '/');
-                    setCurrentPage('dashboard');
-                }, 3000);
+                    window.location.replace('/');
+                }, 2000);
 
             } catch (err: any) {
                 console.error('Notion auth error:', err);
@@ -72,7 +89,7 @@ export function NotionCallback() {
         };
 
         processCallback();
-    }, [activeTenant?.id, setCurrentPage]);
+    }, [setCurrentPage]);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
