@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
-import { BriefingData } from './briefingService';
+import { BriefingData, callGeminiWithFallback } from './briefingService';
 
 // =============================================
 // Agent Definitions
@@ -305,18 +305,12 @@ export async function runAgent(
     userInput: string = '',
     dossieContext: string = ''
 ): Promise<{ output: string; durationMs: number }> {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('VITE_GEMINI_API_KEY não configurada no .env');
-
     const promptBuilder = SYSTEM_PROMPTS[agentId];
     if (!promptBuilder) throw new Error(`Agente "${agentId}" não encontrado`);
 
     const prompt = promptBuilder(briefing, userInput);
-    // Append Dossiê IA context if available
     const fullPrompt = dossieContext ? `${prompt}\n\n${dossieContext}` : prompt;
 
-    const agent = AI_AGENTS.find(a => a.id === agentId);
-    // Adjust temperature per agent role
     const temperatures: Record<string, number> = {
         emilio: 0.8,
         picasso: 0.7,
@@ -326,34 +320,14 @@ export async function runAgent(
     };
 
     const startTime = Date.now();
-
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: fullPrompt }] }],
-                generationConfig: {
-                    temperature: temperatures[agentId] ?? 0.8,
-                    maxOutputTokens: 8192,
-                    topP: 0.95,
-                },
-            }),
-        }
-    );
-
+    const output = await callGeminiWithFallback(fullPrompt, {
+        temperature: temperatures[agentId] ?? 0.8,
+        maxOutputTokens: 8192,
+        topP: 0.95,
+    });
     const durationMs = Date.now() - startTime;
 
-    if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || `Erro Gemini: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const output = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sem conteúdo gerado';
-
-    return { output, durationMs };
+    return { output: output || 'Sem conteúdo gerado', durationMs };
 }
 
 // =============================================
@@ -436,8 +410,8 @@ export async function saveExecution(
     imageUrl?: string,
     model: string = 'gemini-2.5-flash'
 ): Promise<AgentExecutionDB | null> {
-    const { data, error } = await supabase
-        .from('agent_executions')
+    const { data, error } = await (supabase
+        .from('agent_executions') as any)
         .insert({
             tenant_id: tenantId,
             agent_id: agentId,
@@ -489,8 +463,8 @@ export async function updateExecutionTitle(
     executionId: string,
     newTitle: string
 ): Promise<boolean> {
-    const { error } = await supabase
-        .from('agent_executions')
+    const { error } = await (supabase
+        .from('agent_executions') as any)
         .update({ title: newTitle, updated_at: new Date().toISOString() })
         .eq('id', executionId);
 

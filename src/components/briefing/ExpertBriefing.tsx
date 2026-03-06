@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Save, Sparkles, Loader2, ChevronRight, ChevronLeft, Check, Plus, X,
-  User, Package, Target, Lightbulb, Palette, Wand2
+  User, Package, Target, Lightbulb, Palette, Wand2, Calendar, ArrowRight
 } from 'lucide-react';
-import { useAuthStore } from '@/store';
-import { briefingService, generateWithGemini, BriefingData } from '@/lib/services/briefingService';
+import { useAuthStore, useUIStore } from '@/store';
+import { briefingService, generateWithGemini, generateFieldSuggestion, generate7WeekPlan, BriefingData } from '@/lib/services/briefingService';
+import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
 const STEPS = [
@@ -16,8 +17,9 @@ const STEPS = [
   { id: 6, title: 'Gerar Conteúdo IA', icon: Sparkles, desc: 'IA cria o material' },
 ];
 
-function TagInput({ label, values, onChange, placeholder }: {
+function TagInput({ label, values, onChange, placeholder, onGenerateAI, isGenerating }: {
   label: string; values: string[]; onChange: (v: string[]) => void; placeholder?: string;
+  onGenerateAI?: () => void; isGenerating?: boolean;
 }) {
   const [input, setInput] = useState('');
   function add() {
@@ -26,7 +28,20 @@ function TagInput({ label, values, onChange, placeholder }: {
   }
   return (
     <div>
-      <label className="block text-sm font-medium text-foreground mb-2">{label}</label>
+      <div className="flex items-center justify-between mb-2">
+        <label className="block text-sm font-medium text-foreground">{label}</label>
+        {onGenerateAI && (
+          <button
+            type="button"
+            onClick={onGenerateAI}
+            disabled={isGenerating}
+            className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+          >
+            {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {isGenerating ? 'Gerando...' : 'Auto-preencher'}
+          </button>
+        )}
+      </div>
       <div className="flex gap-2 mb-2">
         <input value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
@@ -51,10 +66,23 @@ function TagInput({ label, values, onChange, placeholder }: {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, onGenerateAI, isGenerating }: { label: string; children: React.ReactNode; onGenerateAI?: () => void; isGenerating?: boolean }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-foreground">{label}</label>
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-foreground">{label}</label>
+        {onGenerateAI && (
+          <button
+            type="button"
+            onClick={onGenerateAI}
+            disabled={isGenerating}
+            className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+          >
+            {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {isGenerating ? 'Gerando...' : 'Auto-preencher'}
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -62,13 +90,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function ExpertBriefing() {
   const { activeTenant } = useAuthStore() as any;
+  const { setCurrentPage } = useUIStore() as any;
   const tenantId = activeTenant?.id;
 
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [generating, setGenerating] = useState<string | null>(null);
+  const [generatingField, setGeneratingField] = useState<string | null>(null);
   const [generatedContent, setGeneratedContent] = useState<Record<string, string>>({});
+  const [planGenerated, setPlanGenerated] = useState(false);
+  const [planGenerating, setPlanGenerating] = useState(false);
+  const [planError, setPlanError] = useState('');
 
   const [data, setData] = useState<BriefingData>({
     tenant_id: tenantId || '',
@@ -110,6 +143,97 @@ export function ExpertBriefing() {
       setGeneratedContent(prev => ({ ...prev, [type]: content }));
     } catch (err: any) { alert('Erro: ' + err.message); }
     finally { setGenerating(null); }
+  }
+
+  async function handleGeneratePlan() {
+    if (!tenantId) return;
+    setPlanGenerating(true);
+    setPlanError('');
+    setPlanGenerated(false);
+    try {
+      // 1. Generate 7-week plan with Gemini 2.5 Pro
+      const plan = await generate7WeekPlan(data);
+
+      // 2. Create launch record
+      const { data: launchData, error: launchError } = await (supabase.from('launches') as any)
+        .insert({
+          tenant_id: tenantId,
+          name: plan.launch_name,
+          product_name: data.product_name || plan.launch_name,
+          start_date: new Date().toISOString().split('T')[0],
+          current_week: 1,
+          status: 'active',
+        })
+        .select()
+        .single();
+      if (launchError) throw launchError;
+      const launchId = (launchData as any).id;
+
+      // 3. Create phases and tasks
+      for (const week of plan.weeks) {
+        const phaseColors: Record<string, string> = {
+          planning: 'bg-blue-500', anticipation: 'bg-violet-500',
+          sales: 'bg-emerald-500', immersion: 'bg-amber-500', upsell: 'bg-rose-500',
+        };
+        const { data: phaseData, error: phaseError } = await (supabase.from('launch_phases') as any)
+          .insert({
+            launch_id: launchId,
+            tenant_id: tenantId,
+            name: week.theme,
+            week_start: week.week_start,
+            week_end: week.week_end,
+            status: 'pending',
+            color: phaseColors[week.phase] || 'bg-violet-500',
+          })
+          .select()
+          .single();
+        if (phaseError) throw phaseError;
+        const phaseId = (phaseData as any).id;
+
+        // Insert tasks for this phase
+        if (week.tasks?.length) {
+          const tasksToInsert = week.tasks.map((t) => ({
+            phase_id: phaseId,
+            tenant_id: tenantId,
+            name: t.name,
+            description: t.description || '',
+            priority: t.priority || 'medium',
+            status: 'pending',
+          }));
+          await (supabase.from('tasks') as any).insert(tasksToInsert);
+        }
+      }
+
+      setPlanGenerated(true);
+    } catch (err: any) {
+      console.error('Plan generation error:', err);
+      setPlanError(err.message || 'Erro ao gerar plano');
+    } finally {
+      setPlanGenerating(false);
+    }
+  }
+
+  async function handleGenerateField(fieldKey: keyof BriefingData, fieldTitle: string) {
+    if (!tenantId) return;
+    setGeneratingField(fieldKey as string);
+    try {
+      const suggestion = await generateFieldSuggestion(data, fieldKey as string, fieldTitle);
+
+      const isArrayField = ['expert_credentials', 'product_bonuses', 'audience_pain_points', 'audience_desires', 'audience_objections', 'voice_tones', 'words_to_use', 'words_to_avoid'].includes(fieldKey as string);
+
+      if (isArrayField) {
+        const newItems = suggestion.split(/[\n,]+/).map(s => s.trim().replace(/^[-*•]\s*/, '')).filter(Boolean);
+        const existing = (data[fieldKey] as string[]) || [];
+        const unique = Array.from(new Set([...existing, ...newItems]));
+        set(fieldKey, unique);
+      } else {
+        set(fieldKey, suggestion);
+      }
+    } catch (err: any) {
+      alert('Erro ao gerar com IA: ' + err.message);
+    } finally {
+      setGeneratingField(null);
+    }
   }
 
   const progress = (step / STEPS.length) * 100;
@@ -192,13 +316,13 @@ export function ExpertBriefing() {
             <Field label="Nome Completo do Expert *">
               <input value={data.expert_name || ''} onChange={e => set('expert_name', e.target.value)} placeholder="Ex: João Silva" className="input-theme" />
             </Field>
-            <Field label="Biografia / História do Expert *">
+            <Field label="Biografia / História do Expert *" onGenerateAI={() => handleGenerateField('expert_bio', 'Biografia / História do Expert')} isGenerating={generatingField === 'expert_bio'}>
               <textarea value={data.expert_bio || ''} onChange={e => set('expert_bio', e.target.value)} rows={5} placeholder="Conte a trajetória, conquistas e resultados..." className="input-theme resize-none" />
             </Field>
             <Field label="URL da Foto">
               <input value={data.expert_photo_url || ''} onChange={e => set('expert_photo_url', e.target.value)} placeholder="https://..." type="url" className="input-theme" />
             </Field>
-            <TagInput label="Credenciais" values={data.expert_credentials || []} onChange={v => set('expert_credentials', v)} placeholder="Ex: MBA em Marketing → Enter" />
+            <TagInput label="Credenciais" values={data.expert_credentials || []} onChange={v => set('expert_credentials', v)} placeholder="Ex: MBA em Marketing → Enter" onGenerateAI={() => handleGenerateField('expert_credentials', 'Credenciais Acadêmicas ou Profissionais')} isGenerating={generatingField === 'expert_credentials'} />
           </div>
         )}
 
@@ -209,7 +333,7 @@ export function ExpertBriefing() {
               <p className="text-sm text-muted-foreground mt-1">O que está sendo vendido</p>
             </div>
             <Field label="Nome do Produto *"><input value={data.product_name || ''} onChange={e => set('product_name', e.target.value)} placeholder="Ex: Método Corpo Transformado" className="input-theme" /></Field>
-            <Field label="Descrição *"><textarea value={data.product_description || ''} onChange={e => set('product_description', e.target.value)} rows={4} placeholder="O que o cliente vai receber?" className="input-theme resize-none" /></Field>
+            <Field label="Descrição *" onGenerateAI={() => handleGenerateField('product_description', 'Descrição Comercial do Produto')} isGenerating={generatingField === 'product_description'}><textarea value={data.product_description || ''} onChange={e => set('product_description', e.target.value)} rows={4} placeholder="O que o cliente vai receber?" className="input-theme resize-none" /></Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Preço (R$) *"><input type="number" value={data.product_price || ''} onChange={e => set('product_price', parseFloat(e.target.value))} placeholder="997" className="input-theme" /></Field>
               <Field label="Parcelas"><select value={data.product_installments || 12} onChange={e => set('product_installments', parseInt(e.target.value))} className="input-theme">
@@ -219,7 +343,7 @@ export function ExpertBriefing() {
             <Field label="Garantia"><select value={data.product_guarantee || '7 dias'} onChange={e => set('product_guarantee', e.target.value)} className="input-theme">
               {['7 dias', '15 dias', '30 dias', '60 dias', '90 dias'].map(g => <option key={g}>{g}</option>)}
             </select></Field>
-            <TagInput label="Bônus" values={data.product_bonuses || []} onChange={v => set('product_bonuses', v)} placeholder="Lives ao vivo → Enter" />
+            <TagInput label="Bônus" values={data.product_bonuses || []} onChange={v => set('product_bonuses', v)} placeholder="Lives ao vivo → Enter" onGenerateAI={() => handleGenerateField('product_bonuses', 'Ideias de Bônus Atraentes')} isGenerating={generatingField === 'product_bonuses'} />
           </div>
         )}
 
@@ -229,10 +353,10 @@ export function ExpertBriefing() {
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2"><Target className="w-5 h-5 text-violet-400" /> Público-Alvo</h2>
               <p className="text-sm text-muted-foreground mt-1">Para quem é esse produto</p>
             </div>
-            <Field label="Descrição do Público *"><textarea value={data.target_audience || ''} onChange={e => set('target_audience', e.target.value)} rows={3} placeholder="Mulheres de 30-50 anos..." className="input-theme resize-none" /></Field>
-            <TagInput label="🔥 Dores" values={data.audience_pain_points || []} onChange={v => set('audience_pain_points', v)} placeholder="Não consigo emagrecer → Enter" />
-            <TagInput label="✨ Desejos" values={data.audience_desires || []} onChange={v => set('audience_desires', v)} placeholder="Autoestima de volta → Enter" />
-            <TagInput label="🚧 Objeções" values={data.audience_objections || []} onChange={v => set('audience_objections', v)} placeholder="Já tentei de tudo → Enter" />
+            <Field label="Descrição do Público *" onGenerateAI={() => handleGenerateField('target_audience', 'Descrição do Público-Alvo / Avatar')} isGenerating={generatingField === 'target_audience'}><textarea value={data.target_audience || ''} onChange={e => set('target_audience', e.target.value)} rows={3} placeholder="Mulheres de 30-50 anos..." className="input-theme resize-none" /></Field>
+            <TagInput label="🔥 Dores" values={data.audience_pain_points || []} onChange={v => set('audience_pain_points', v)} placeholder="Não consigo emagrecer → Enter" onGenerateAI={() => handleGenerateField('audience_pain_points', 'Principais Dores do Público')} isGenerating={generatingField === 'audience_pain_points'} />
+            <TagInput label="✨ Desejos" values={data.audience_desires || []} onChange={v => set('audience_desires', v)} placeholder="Autoestima de volta → Enter" onGenerateAI={() => handleGenerateField('audience_desires', 'Maiores Desejos do Público')} isGenerating={generatingField === 'audience_desires'} />
+            <TagInput label="🚧 Objeções" values={data.audience_objections || []} onChange={v => set('audience_objections', v)} placeholder="Já tentei de tudo → Enter" onGenerateAI={() => handleGenerateField('audience_objections', 'Principais Objeções de Compra')} isGenerating={generatingField === 'audience_objections'} />
           </div>
         )}
 
@@ -242,9 +366,9 @@ export function ExpertBriefing() {
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2"><Lightbulb className="w-5 h-5 text-violet-400" /> Promessa Central</h2>
               <p className="text-sm text-muted-foreground mt-1">O argumento de venda principal</p>
             </div>
-            <Field label="Promessa Principal *"><textarea value={data.main_promise || ''} onChange={e => set('main_promise', e.target.value)} rows={3} placeholder="Em 30 dias você vai..." className="input-theme resize-none" /></Field>
-            <Field label="Benefício / Transformação *"><textarea value={data.main_benefit || ''} onChange={e => set('main_benefit', e.target.value)} rows={3} placeholder="Recuperar a confiança..." className="input-theme resize-none" /></Field>
-            <Field label="Diferencial Competitivo"><textarea value={data.differentiation || ''} onChange={e => set('differentiation', e.target.value)} rows={3} placeholder="O que torna único..." className="input-theme resize-none" /></Field>
+            <Field label="Promessa Principal *" onGenerateAI={() => handleGenerateField('main_promise', 'A Grande Promessa do Produto')} isGenerating={generatingField === 'main_promise'}><textarea value={data.main_promise || ''} onChange={e => set('main_promise', e.target.value)} rows={3} placeholder="Em 30 dias você vai..." className="input-theme resize-none" /></Field>
+            <Field label="Benefício / Transformação *" onGenerateAI={() => handleGenerateField('main_benefit', 'A Transformação / Benefício Central')} isGenerating={generatingField === 'main_benefit'}><textarea value={data.main_benefit || ''} onChange={e => set('main_benefit', e.target.value)} rows={3} placeholder="Recuperar a confiança..." className="input-theme resize-none" /></Field>
+            <Field label="Diferencial Competitivo" onGenerateAI={() => handleGenerateField('differentiation', 'O Diferencial Único / Mecanismo Único')} isGenerating={generatingField === 'differentiation'}><textarea value={data.differentiation || ''} onChange={e => set('differentiation', e.target.value)} rows={3} placeholder="O que torna único..." className="input-theme resize-none" /></Field>
           </div>
         )}
 
@@ -254,8 +378,8 @@ export function ExpertBriefing() {
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2"><Palette className="w-5 h-5 text-violet-400" /> Identidade de Marca</h2>
               <p className="text-sm text-muted-foreground mt-1">Tom de voz e comunicação</p>
             </div>
-            <TagInput label="Tom de Voz" values={data.voice_tones || []} onChange={v => set('voice_tones', v)} placeholder="Empático, Direto → Enter" />
-            <TagInput label="✅ Palavras para Usar" values={data.words_to_use || []} onChange={v => set('words_to_use', v)} placeholder="Transformação → Enter" />
+            <TagInput label="Tom de Voz" values={data.voice_tones || []} onChange={v => set('voice_tones', v)} placeholder="Empático, Direto → Enter" onGenerateAI={() => handleGenerateField('voice_tones', 'Tons de Voz para a Comunicação')} isGenerating={generatingField === 'voice_tones'} />
+            <TagInput label="✅ Palavras para Usar" values={data.words_to_use || []} onChange={v => set('words_to_use', v)} placeholder="Transformação → Enter" onGenerateAI={() => handleGenerateField('words_to_use', 'Palavras-chave Estratégicas Positivas')} isGenerating={generatingField === 'words_to_use'} />
             <TagInput label="❌ Palavras para Evitar" values={data.words_to_avoid || []} onChange={v => set('words_to_avoid', v)} placeholder="Milagre → Enter" />
           </div>
         )}
@@ -291,7 +415,6 @@ export function ExpertBriefing() {
               { type: 'page', label: '📄 Página de Vendas', desc: 'Copy completa para landing page' },
               { type: 'email_sequence', label: '📧 Sequência de Emails', desc: '5 emails para semana de lançamento' },
               { type: 'whatsapp', label: '💬 Scripts WhatsApp', desc: '5 mensagens de disparo' },
-              { type: 'campaign', label: '📅 Plano de Conteúdo', desc: '20 posts para redes sociais' },
             ].map(item => (
               <div key={item.type} className="glass-card p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -307,7 +430,7 @@ export function ExpertBriefing() {
                 {generatedContent[item.type] && (
                   <div className="bg-secondary/30 rounded-xl p-4 border border-border/30">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold text-violet-400">Gerado por Gemini 2.0 Flash</span>
+                      <span className="text-xs font-semibold text-violet-400">Gerado por Gemini 2.5 Pro</span>
                       <button onClick={() => navigator.clipboard.writeText(generatedContent[item.type])} className="text-xs text-muted-foreground hover:text-violet-400 transition-colors">📋 Copiar</button>
                     </div>
                     <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">{generatedContent[item.type]}</pre>
@@ -315,6 +438,65 @@ export function ExpertBriefing() {
                 )}
               </div>
             ))}
+
+            {/* 7-Week Plan Card — special AI agent */}
+            <div className="glass-card p-6 border-2 border-violet-500/30 bg-violet-500/5">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-foreground flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-violet-400" />
+                    📅 Plano de Lançamento 7 Semanas
+                  </h3>
+                  <p className="text-sm text-muted-foreground">Agente especialista gera seu calendário completo de lançamento personalizado</p>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className="text-[11px] px-2 py-0.5 bg-violet-500/15 text-violet-300 rounded-full border border-violet-500/20 font-medium">✨ Gemini 2.5 Pro</span>
+                    <span className="text-[11px] text-muted-foreground">Modelo mais avançado disponível</span>
+                  </div>
+                </div>
+                <button
+                  onClick={handleGeneratePlan}
+                  disabled={planGenerating || !geminiConfigured}
+                  className={cn('btn-premium flex items-center gap-2 text-sm', (!geminiConfigured || planGenerating) && 'opacity-40 cursor-not-allowed')}
+                >
+                  {planGenerating
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Criando plano...</>
+                    : <><Wand2 className="w-4 h-4" /> Gerar Plano</>
+                  }
+                </button>
+              </div>
+
+              {planError && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-400">
+                  ❌ {planError}
+                </div>
+              )}
+
+              {planGenerated && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                  <p className="text-emerald-400 font-semibold text-sm mb-3">✅ Plano de 7 semanas criado com sucesso!</p>
+                  <p className="text-sm text-muted-foreground mb-3">Seu calendario personalizado de lançamento foi gerado com tarefas específicas para cada fase. Veja agora na Timeline!</p>
+                  <button
+                    onClick={() => setCurrentPage('timeline')}
+                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Ver Timeline 7 Semanas
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {!planGenerated && !planGenerating && !planError && (
+                <div className="text-center py-4 text-muted-foreground text-sm">
+                  <p>O agente vai criar um plano personalizado com base no seu briefing, incluindo:</p>
+                  <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+                    <span className="bg-secondary/40 rounded-lg px-2 py-1.5">📋 Tarefas por semana</span>
+                    <span className="bg-secondary/40 rounded-lg px-2 py-1.5">📱 Posts para redes sociais</span>
+                    <span className="bg-secondary/40 rounded-lg px-2 py-1.5">🎯 Estratégia personalizada</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

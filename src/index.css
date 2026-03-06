@@ -5,6 +5,8 @@
 @tailwind components;
 @tailwind utilities;
 
+
+
 @layer base {
   :root {
     /* Vercel/Linear inspired Light Theme (Clean / Soft) */
@@ -148,10 +150,11 @@
 
   /* Animated Background Orbs */
   .bg-orb {
-    position: absolute;
+    position: fixed;
     border-radius: 50%;
     filter: blur(100px);
     opacity: 0.08;
+    pointer-events: none;
     animation: float 20s ease-in-out infinite;
   }
 

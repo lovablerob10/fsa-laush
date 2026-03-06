@@ -4,15 +4,20 @@ import { persist } from 'zustand/middleware';
 // Store de Autenticação e Tenant
 export const useAuthStore = create(
   persist(
-    (set: any) => ({
+    (set: any, get: any) => ({
       user: null,
       tenant: null,          // tenant real do usuário logado
       activeTenant: null,    // tenant selecionado para trabalhar (pode ser diferente para admin FSA)
+      activeLaunch: null,    // lançamento ativo dentro do tenant selecionado
       isAuthenticated: false,
       setUser: (user: any) => set({ user, isAuthenticated: !!user }),
-      setTenant: (tenant: any) => set({ tenant, activeTenant: tenant }), // por padrão, activeTenant = tenant do user
-      setActiveTenant: (activeTenant: any) => set({ activeTenant }),
-      logout: () => set({ user: null, tenant: null, activeTenant: null, isAuthenticated: false }),
+      setTenant: (tenant: any) => set((state: any) => ({
+        tenant,
+        activeTenant: state.activeTenant ?? tenant,
+      })),
+      setActiveTenant: (activeTenant: any) => set({ activeTenant, activeLaunch: null }), // reset launch on tenant switch
+      setActiveLaunch: (activeLaunch: any) => set({ activeLaunch }),
+      logout: () => set({ user: null, tenant: null, activeTenant: null, activeLaunch: null, isAuthenticated: false }),
     }),
     {
       name: 'auth-storage',
@@ -169,9 +174,11 @@ export const useUIStore = create((set: any) => ({
   currentPage: 'dashboard',
   theme: 'light',
   notifications: [],
+  pendingOpenTaskId: null as string | null, // used to auto-open a task in Timeline after navigation
   toggleSidebar: () => set((state: any) => ({ sidebarOpen: !state.sidebarOpen })),
   setCurrentPage: (currentPage: string) => set({ currentPage }),
   setTheme: (theme: string) => set({ theme }),
+  setPendingOpenTaskId: (id: string | null) => set({ pendingOpenTaskId: id }),
   addNotification: (notification: any) => set((state: any) => ({
     notifications: [
       { ...notification, id: Math.random().toString(36).substr(2, 9) },

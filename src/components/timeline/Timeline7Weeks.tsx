@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { 
-  CheckCircle2, 
-  Circle, 
-  Clock, 
+import {
+  CheckCircle2,
+  Circle,
+  Clock,
   ChevronRight,
   Calendar,
   Target,
@@ -17,11 +17,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useLaunchesStore, useAuthStore } from '@/store';
+import { useLaunchesStore, useAuthStore, useUIStore } from '@/store';
 import { supabase } from '@/lib/supabase/client';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { TaskDetailPanel } from './TaskDetailPanel';
 
 interface Phase {
   id: string;
@@ -129,58 +129,174 @@ const MOCK_TASKS: Record<string, Task[]> = {
 
 export function Timeline7Weeks() {
   const { selectedLaunch, setLaunches, selectLaunch } = useLaunchesStore();
-  const { tenant } = useAuthStore();
+  const { tenant, activeTenant } = useAuthStore() as any;
+  const { pendingOpenTaskId, setPendingOpenTaskId } = useUIStore() as any;
   const [phases, setPhases] = useState<Phase[]>([]);
   const [currentWeek, setCurrentWeek] = useState(1);
   const [selectedPhase, setSelectedPhase] = useState<string>('planning');
+  const [hasData, setHasData] = useState<boolean | null>(null); // null = loading
 
   useEffect(() => {
     loadLaunchData();
-  }, [tenant]);
+  }, [activeTenant, tenant]);
+
+  // Auto-open task when coming from notification bell
+  useEffect(() => {
+    if (!pendingOpenTaskId || phases.length === 0) return;
+    for (const phase of phases) {
+      const task = phase.tasks.find(t => t.id === pendingOpenTaskId);
+      if (task) {
+        setSelectedTask(task);
+        setSelectedPhase(phase.id);
+        setPendingOpenTaskId(null); // clear immediately so it doesn't re-trigger
+        break;
+      }
+    }
+  }, [pendingOpenTaskId, phases]);
 
   async function loadLaunchData() {
+    const tenantId = (activeTenant as any)?.id || (tenant as any)?.id;
+    if (!tenantId) return;
     try {
-      // Busca lançamentos do tenant
+      setHasData(null);
+      // Busca lançamentos do tenant com fases e tasks
       const { data: launchesData } = await supabase
         .from('launches')
         .select('*, launch_phases(*, tasks(*))')
-        .eq('tenant_id', tenant?.id)
+        .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false });
 
       if (launchesData && launchesData.length > 0) {
         setLaunches(launchesData as any);
         selectLaunch(launchesData[0] as any);
-        
-        // Calcula semana atual
+
         const launch = launchesData[0] as any;
         const startDate = new Date(launch.start_date);
         const now = new Date();
         const diffWeeks = Math.floor((now.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
         setCurrentWeek(Math.min(Math.max(diffWeeks + 1, 1), 7));
 
-        // Monta fases com tasks
-        const phasesWithTasks: Phase[] = PHASES_CONFIG.map(phase => ({
-          ...phase,
-          status: (launch.current_week >= phase.week_start 
-            ? launch.current_week > phase.week_end ? 'completed' : 'in_progress'
-            : 'pending') as 'pending' | 'in_progress' | 'completed',
-          tasks: MOCK_TASKS[phase.id] || [],
-        }));
-        
-        setPhases(phasesWithTasks);
+        // Map launch_phases (from DB) to Phase[] using PHASES_CONFIG structure
+        const dbPhases = (launch.launch_phases || []) as any[];
+
+        if (dbPhases.length > 0) {
+          // Use real DB data
+          const phasesWithTasks: Phase[] = PHASES_CONFIG.map(cfg => {
+            const dbPhase = dbPhases.find((p: any) => p.phase_type === cfg.id) || dbPhases.find((p: any) => p.week_start >= cfg.week_start && p.week_start <= cfg.week_end);
+            const currentWk = launch.current_week || 1;
+            const status = dbPhase
+              ? (currentWk > cfg.week_end ? 'completed' : currentWk >= cfg.week_start ? 'in_progress' : 'pending') as Phase['status']
+              : 'pending' as Phase['status'];
+            const tasks: Task[] = (dbPhase?.tasks || []).map((t: any) => ({
+              id: t.id,
+              name: t.name,
+              description: t.description,
+              status: t.status || 'pending',
+              priority: t.priority || 'medium',
+              assignee: t.assignee,
+              due_date: t.due_date,
+            }));
+            return { ...cfg, status, tasks, description: dbPhase?.name || cfg.description };
+          });
+          setPhases(phasesWithTasks);
+          setHasData(true);
+        } else {
+          // Launch exists but phases not yet created (use mock)
+          const mockPhases: Phase[] = PHASES_CONFIG.map(phase => ({
+            ...phase,
+            status: (currentWeek >= phase.week_start
+              ? currentWeek > phase.week_end ? 'completed' : 'in_progress'
+              : 'pending') as 'pending' | 'in_progress' | 'completed',
+            tasks: MOCK_TASKS[phase.id] || [],
+          }));
+          setPhases(mockPhases);
+          setHasData(false);
+        }
       } else {
-        // Cria fases mockadas para demonstração
+        // No launch data at all
+        setHasData(false);
         const mockPhases: Phase[] = PHASES_CONFIG.map(phase => ({
           ...phase,
-          status: (currentWeek >= phase.week_start 
-            ? currentWeek > phase.week_end ? 'completed' : 'in_progress'
-            : 'pending') as 'pending' | 'in_progress' | 'completed',
+          status: 'pending' as const,
           tasks: MOCK_TASKS[phase.id] || [],
         }));
         setPhases(mockPhases);
       }
     } catch (error) {
       console.error('Erro ao carregar lançamento:', error);
+      setHasData(false);
+    }
+  }
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showNewTaskModal, setShowNewTaskModal] = useState(false);
+  const [newTaskName, setNewTaskName] = useState('');
+  const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [savingTask, setSavingTask] = useState(false);
+
+  async function toggleTaskStatus(task: Task, explicitStatus?: Task['status']) {
+    const newStatus = explicitStatus ?? (task.status === 'completed' ? 'pending' : 'completed');
+    // Optimistic UI update
+    setPhases(prev => prev.map(phase => ({
+      ...phase,
+      tasks: phase.tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t)
+    })));
+    if (selectedTask?.id === task.id) setSelectedTask(prev => prev ? { ...prev, status: newStatus } : null);
+    // Persist to DB
+    try {
+      await (supabase.from('tasks') as any).update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', task.id);
+    } catch (err) {
+      console.error('Erro ao atualizar task:', err);
+    }
+  }
+
+  function handleWeekClick(week: number) {
+    setCurrentWeek(week);
+    const phase = phases.find(p => week >= p.week_start && week <= p.week_end);
+    if (phase) setSelectedPhase(phase.id);
+  }
+
+  async function handleAddTask() {
+    if (!newTaskName.trim()) return;
+    const currentPhase = phases.find(p => p.id === selectedPhase);
+    if (!currentPhase) return;
+    setSavingTask(true);
+    try {
+      const tenantId = (activeTenant as any)?.id || (tenant as any)?.id;
+      // Find phase_id from DB (we need launch_phases id)
+      const { data: phaseData } = await (supabase.from('launch_phases') as any)
+        .select('id')
+        .eq('name', currentPhase.description)
+        .limit(1)
+        .single();
+      const phaseDbId = phaseData?.id;
+
+      const newTask: Task = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: newTaskName,
+        description: newTaskDesc,
+        status: 'pending',
+        priority: newTaskPriority,
+      };
+
+      if (phaseDbId && tenantId) {
+        const { data: inserted } = await (supabase.from('tasks') as any)
+          .insert({ phase_id: phaseDbId, tenant_id: tenantId, name: newTaskName, description: newTaskDesc, priority: newTaskPriority, status: 'pending' })
+          .select().single();
+        if (inserted) newTask.id = inserted.id;
+      }
+
+      setPhases(prev => prev.map(p =>
+        p.id === selectedPhase ? { ...p, tasks: [...p.tasks, newTask] } : p
+      ));
+      setNewTaskName('');
+      setNewTaskDesc('');
+      setNewTaskPriority('medium');
+      setShowNewTaskModal(false);
+    } catch (err) {
+      console.error('Erro ao adicionar task:', err);
+    } finally {
+      setSavingTask(false);
     }
   }
 
@@ -207,7 +323,82 @@ export function Timeline7Weeks() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 relative">
+      {/* Task Detail Panel */}
+      <TaskDetailPanel
+        task={selectedTask}
+        onClose={() => setSelectedTask(null)}
+        onStatusChange={(taskId, newStatus) => {
+          setPhases(prev => prev.map(phase => ({
+            ...phase,
+            tasks: phase.tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t)
+          })));
+          if (selectedTask?.id === taskId) setSelectedTask(prev => prev ? { ...prev, status: newStatus } : null);
+          supabase.from('tasks' as any).update({ status: newStatus }).eq('id', taskId).then(() => { });
+        }}
+      />
+
+      {/* Nova Tarefa Modal */}
+      {showNewTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowNewTaskModal(false)}>
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-slate-900 mb-4">Nova Tarefa</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-1 block">Nome da tarefa *</label>
+                <input
+                  autoFocus
+                  value={newTaskName}
+                  onChange={e => setNewTaskName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddTask()}
+                  placeholder="Ex: Criar página de captura"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição</label>
+                <textarea
+                  rows={3}
+                  value={newTaskDesc}
+                  onChange={e => setNewTaskDesc(e.target.value)}
+                  placeholder="Descreva os detalhes da tarefa..."
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700 mb-2 block">Prioridade</label>
+                <div className="flex gap-2">
+                  {(['low', 'medium', 'high'] as const).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setNewTaskPriority(p)}
+                      className={cn(
+                        'flex-1 py-2 px-3 rounded-lg text-xs font-medium border transition-colors',
+                        newTaskPriority === p ? 'bg-violet-600 text-white border-violet-600' : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-violet-300'
+                      )}
+                    >
+                      {p === 'low' ? 'Baixa' : p === 'medium' ? 'Média' : 'Alta'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-3 mt-2">
+                <button
+                  onClick={() => setShowNewTaskModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"
+                >Cancelar</button>
+                <button
+                  onClick={handleAddTask}
+                  disabled={!newTaskName.trim() || savingTask}
+                  className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                >{savingTask ? 'Salvando...' : 'Adicionar'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -221,7 +412,7 @@ export function Timeline7Weeks() {
             <Calendar className="w-4 h-4 mr-2" />
             {format(new Date(), 'dd/MM/yyyy')}
           </Button>
-          <Button size="sm" className="bg-violet-600 hover:bg-violet-700">
+          <Button size="sm" className="bg-violet-600 hover:bg-violet-700" onClick={() => setShowNewTaskModal(true)}>
             Nova Tarefa
           </Button>
         </div>
@@ -240,17 +431,18 @@ export function Timeline7Weeks() {
             <Progress value={(currentWeek / 7) * 100} className="h-3" />
             <div className="flex justify-between mt-2">
               {Array.from({ length: 7 }, (_, i) => (
-                <div 
-                  key={i} 
+                <button
+                  key={i}
+                  onClick={() => handleWeekClick(i + 1)}
                   className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold -mt-5",
-                    i + 1 <= currentWeek 
-                      ? 'bg-violet-600 text-white' 
-                      : 'bg-slate-200 text-slate-500'
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold -mt-5 transition-transform hover:scale-110",
+                    i + 1 <= currentWeek
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-slate-200 text-slate-500 hover:bg-violet-200'
                   )}
                 >
                   {i + 1}
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -263,15 +455,15 @@ export function Timeline7Weeks() {
           const Icon = phase.icon;
           const isActive = selectedPhase === phase.id;
           const isCurrentPhase = currentWeek >= phase.week_start && currentWeek <= phase.week_end;
-          
+
           return (
             <button
               key={phase.id}
               onClick={() => setSelectedPhase(phase.id)}
               className={cn(
                 'relative p-4 rounded-xl border-2 transition-all text-left',
-                isActive 
-                  ? 'border-violet-500 bg-violet-50' 
+                isActive
+                  ? 'border-violet-500 bg-violet-50'
                   : 'border-slate-200 hover:border-violet-300',
                 isCurrentPhase && 'ring-2 ring-violet-500 ring-offset-2'
               )}
@@ -282,12 +474,12 @@ export function Timeline7Weeks() {
               )}>
                 <Icon className={cn('w-5 h-5', phase.color.replace('bg-', 'text-'))} />
               </div>
-              
+
               <h3 className="font-semibold text-slate-900">{phase.name}</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Semana {phase.week_start}{phase.week_end !== phase.week_start && `-${phase.week_end}`}
               </p>
-              
+
               <div className="mt-3">
                 {phase.status === 'completed' ? (
                   <Badge className="bg-emerald-100 text-emerald-700">
@@ -336,15 +528,19 @@ export function Timeline7Weeks() {
         <CardContent>
           <div className="space-y-3">
             {phases.find(p => p.id === selectedPhase)?.tasks.map((task) => (
-              <div 
+              <div
                 key={task.id}
                 className="flex items-center gap-4 p-4 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
               >
-                <button className="flex-shrink-0">
+                <button
+                  className="flex-shrink-0 hover:scale-110 transition-transform"
+                  onClick={() => toggleTaskStatus(task)}
+                  title={task.status === 'completed' ? 'Reabrir tarefa' : 'Marcar como concluída'}
+                >
                   {getStatusIcon(task.status)}
                 </button>
-                
-                <div className="flex-1">
+
+                <div className="flex-1 cursor-pointer" onClick={() => setSelectedTask(task)}>
                   <h4 className={cn(
                     'font-medium',
                     task.status === 'completed' && 'line-through text-slate-400'
@@ -358,18 +554,7 @@ export function Timeline7Weeks() {
                   {task.priority === 'high' ? 'Alta' : task.priority === 'medium' ? 'Média' : 'Baixa'}
                 </Badge>
 
-                {task.assignee && (
-                  <div className="flex items-center gap-2 text-sm text-slate-500">
-                    <div className="w-6 h-6 bg-violet-100 rounded-full flex items-center justify-center">
-                      <span className="text-xs font-medium text-violet-600">
-                        {task.assignee.charAt(0)}
-                      </span>
-                    </div>
-                    {task.assignee}
-                  </div>
-                )}
-
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedTask(task)}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

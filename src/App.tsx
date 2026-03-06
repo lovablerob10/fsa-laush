@@ -13,6 +13,7 @@ import { ExpertBriefing } from '@/components/briefing/ExpertBriefing';
 import { ActionCalendar } from '@/components/actions/ActionCalendar';
 import { FrameworkManager } from '@/components/frameworks/FrameworkManager';
 import { AIAgents } from '@/components/ai-agents/AIAgents';
+import { ConciergeOnboarding } from '@/components/onboarding/ConciergeOnboarding';
 import { useUIStore, useAuthStore } from '@/store';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
@@ -59,6 +60,50 @@ function AppContent() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Previne o "scroll fantasma" do navegador que desloca toda a raiz do app 
+  // quando o teclado virtual abre ou quando o scroll-into-view de um input é disparado.
+  useEffect(() => {
+    const handleScroll = () => {
+      if (document.documentElement.scrollTop > 0 || document.body.scrollTop > 0) {
+        window.scrollTo(0, 0);
+      }
+      // O browser também pode colocar o scroll direto no div fixo que serve de raiz
+      const root = document.getElementById('app-root-container');
+      if (root && root.scrollTop > 0) {
+        root.scrollTop = 0;
+      }
+    };
+
+    // Captura scroll tanto da window quanto do root
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    const root = document.getElementById('app-root-container');
+    if (root) {
+      root.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    // Força o reset inicial por garantia
+    handleScroll();
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (root) root.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
+  // Garante que o container de rolagem (main) e a raiz (root) voltem para o topo ao trocar de página
+  useEffect(() => {
+    const mainContainer = document.getElementById('main-scroll-container');
+    if (mainContainer) {
+      mainContainer.scrollTop = 0;
+    }
+
+    const rootContainer = document.getElementById('app-root-container');
+    if (rootContainer) {
+      rootContainer.scrollTop = 0;
+    }
+  }, [currentPage]);
+
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
@@ -71,6 +116,7 @@ function AppContent() {
       case 'frameworks': return <FrameworkManager />;
       case 'recovery': return <SalesRecovery />;
       case 'ai-agents': return <AIAgents />;
+      case 'onboarding': return <ConciergeOnboarding />;
       case 'templates': return <ComingSoon title="Templates de Mensagem" />;
       case 'analytics': return <ComingSoon title="Analytics Avançado" />;
       case 'settings': return <ComingSoon title="Configurações" />;
@@ -79,17 +125,21 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden transition-colors duration-300">
+    <div id="app-root-container" className="fixed inset-0 w-full h-[100dvh] bg-background overflow-hidden transition-colors duration-300">
       {/* Background Orbs */}
       <div className="bg-orb bg-orb-1 opacity-20 dark:opacity-10" />
       <div className="bg-orb bg-orb-2 opacity-20 dark:opacity-10" />
       <div className="bg-orb bg-orb-3 opacity-20 dark:opacity-10" />
 
       <Sidebar />
-      <main className={cn(
-        'transition-all duration-300 min-h-screen relative z-10',
-        isMobile ? 'ml-0 pt-14' : (sidebarOpen ? 'ml-64' : 'ml-16')
-      )}>
+      <main
+        id="main-scroll-container"
+        className={cn(
+          'transition-all duration-300 relative z-10',
+          currentPage === 'onboarding' ? 'h-screen overflow-hidden' : 'h-screen overflow-y-auto',
+          isMobile ? 'ml-0 pt-14' : (sidebarOpen ? 'ml-64' : 'ml-16')
+        )}
+      >
         {renderPage()}
       </main>
     </div>
