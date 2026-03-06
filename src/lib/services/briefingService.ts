@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase/client';
 // =============================================
 // Gemini Helper — Auto Fallback Pro → Flash
 // =============================================
-const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash'];
+const GEMINI_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-flash'];
 
 export async function callGeminiWithFallback(
     prompt: string,
@@ -44,7 +44,13 @@ export async function callGeminiWithFallback(
             }
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error('Gemini retornou resposta vazia');
+            if (!text) {
+                // Model returned no content (safety block, preview timeout, etc.) → try next
+                const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
+                lastError = new Error(`Modelo ${model} não retornou conteúdo (finishReason: ${finishReason})`);
+                console.warn(`[Gemini] ${lastError.message}, tentando próximo...`);
+                continue;
+            }
             return text;
         } catch (err: any) {
             if (err.message?.includes('indisponível') || err.message?.includes('404') || err.message?.includes('429')) {
