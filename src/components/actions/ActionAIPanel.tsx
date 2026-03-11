@@ -504,8 +504,11 @@ EXPERT NAME (bottom): "${b.expert_name || ''}"`.trim();
             text,
             '',
             'DESIGN TIP: ' + tip,
+            '⚠️ CRITICAL SPELLING RULE: Every word in the image text MUST be spelled PERFECTLY. Double-check each word letter by letter before rendering. Example of FORBIDDEN error: "Trransform" instead of "Transform". Zero tolerance for typos.',
+            '⚠️ LANGUAGE RULE: All text in the image must be in the same language as the provided TEXT above (usually Brazilian Portuguese). Do not switch languages.',
             'RULE: Consistent style across all slides (same color scheme, font family). No internal task names. Premium Brazilian marketing.',
         ].join('\n');
+
     }
 
     // ── Cancel carousel generation ──

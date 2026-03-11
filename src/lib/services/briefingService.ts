@@ -239,7 +239,26 @@ Benefício: ${briefing.main_benefit || '-'}
 Diferencial: ${briefing.differentiation || '-'}
 `.trim();
 
-    const prompt = `Você é um copywriter de elite ajudando a preencher um formulário de estratégia de lançamento.
+    // Special prompt for credentials — must generate REAL credentials, not bio sentences
+    const credentialsPrompt = fieldName === 'expert_credentials' ? `Você é um especialista em marketing de autoridade.
+Com base na biografia abaixo, gere uma lista de CREDENCIAIS REAIS E CURTAS para o expert.
+
+BIOGRAFIA: ${briefing.expert_bio || 'Expert no mercado brasileiro'}
+NOME: ${briefing.expert_name || 'Expert'}
+
+REGRAS ABSOLUTAS:
+- Cada credencial deve ser CURTA (máx 60 caracteres) e específica.
+- Credenciais são: títulos acadêmicos, certificações, anos de experiência, premiações, números de resultados, formações, especializações.
+- PROIBIDO: copiar frases da bio completa. PROIBIDO: frases longas corridas.
+- PROIBIDO: mencionar nomes de outras pessoas.
+- Formato: uma credencial por linha. Exemplo de FORMATO CORRETO:
+  MBA em Marketing Digital — FGV
+  16 anos de experiência em educação corporativa
+  Criadora do Método 3C's
+  Formou +5.000 profissionais especializados
+  Palestrante em +50 empresas Fortune 500
+
+Retorne APENAS as credenciais, uma por linha, sem numeração.` : `Você é um copywriter de elite ajudando a preencher um formulário de estratégia de lançamento.
 Sua tarefa é analisar o contexto atual do briefing e escrever uma sugestão altamente persuasiva e profissional exclusivamente para o campo: "${fieldTitle}" (ID: ${fieldName}).
 
 ${context}
@@ -248,11 +267,13 @@ REGRAS:
 1. Retorne APENAS o conteúdo sugerido para o campo "${fieldTitle}". Sem preâmbulos, sem "Aqui está a sugestão:".
 2. Se o campo atual for uma lista (ex: dores, desejos), retorne os itens separados por vírgula.
 3. Se o campo for texto (ex: biografia, promessa), escreva um texto contínuo e impactante.
-4. Use o contexto acima para criar algo que faça sentido histórico e mercadológico. Se o contexto estiver vazio, crie algo genérico mas de alta qualidade para servir de exemplo.`;
+4. Responda SEMPRE no mesmo idioma dos dados do briefing (normalmente português do Brasil).
+5. Use o contexto acima para criar algo que faça sentido histórico e mercadológico. Se o contexto estiver vazio, crie algo genérico mas de alta qualidade para servir de exemplo.`;
 
-    const text = await callGeminiWithFallback(prompt, { temperature: 0.7, maxOutputTokens: 1024 });
+    const text = await callGeminiWithFallback(credentialsPrompt, { temperature: 0.7, maxOutputTokens: 1024 });
     return text.trim();
 }
+
 
 // =============================================
 // Agente Especialista em Lançamentos — Plano 7 Semanas

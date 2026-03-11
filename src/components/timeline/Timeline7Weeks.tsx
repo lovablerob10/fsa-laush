@@ -11,7 +11,8 @@ import {
   MessageSquare,
   Mail,
   Video,
-  Gift
+  Gift,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -175,6 +176,8 @@ export function Timeline7Weeks() {
         const now = new Date();
         const diffWeeks = Math.floor((now.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
         setCurrentWeek(Math.min(Math.max(diffWeeks + 1, 1), 7));
+        // Store start date for editing
+        setLaunchStartDate(launch.start_date ? launch.start_date.split('T')[0] : '');
 
         // Map launch_phases (from DB) to Phase[] using PHASES_CONFIG structure
         const dbPhases = (launch.launch_phases || []) as any[];
@@ -233,6 +236,9 @@ export function Timeline7Weeks() {
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [savingTask, setSavingTask] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [launchStartDate, setLaunchStartDate] = useState<string>(''); // 'YYYY-MM-DD'
+  const [savingDate, setSavingDate] = useState(false);
 
   async function toggleTaskStatus(task: Task, explicitStatus?: Task['status']) {
     const newStatus = explicitStatus ?? (task.status === 'completed' ? 'pending' : 'completed');
@@ -254,6 +260,27 @@ export function Timeline7Weeks() {
     setCurrentWeek(week);
     const phase = phases.find(p => week >= p.week_start && week <= p.week_end);
     if (phase) setSelectedPhase(phase.id);
+  }
+
+  async function updateStartDate(newDate: string) {
+    if (!newDate || !selectedLaunch) return;
+    setSavingDate(true);
+    try {
+      await (supabase.from('launches') as any)
+        .update({ start_date: newDate })
+        .eq('id', (selectedLaunch as any).id);
+      setLaunchStartDate(newDate);
+      // Recalculate current week
+      const startDate = new Date(newDate);
+      const now = new Date();
+      const diffWeeks = Math.floor((now.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      setCurrentWeek(Math.min(Math.max(diffWeeks + 1, 1), 7));
+      setShowDatePicker(false);
+    } catch (err) {
+      console.error('Erro ao salvar data:', err);
+    } finally {
+      setSavingDate(false);
+    }
   }
 
   async function handleAddTask() {
@@ -408,10 +435,33 @@ export function Timeline7Weeks() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm">
-            <Calendar className="w-4 h-4 mr-2" />
-            {format(new Date(), 'dd/MM/yyyy')}
-          </Button>
+          {showDatePicker ? (
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-md">
+              <Calendar className="w-4 h-4 text-violet-500 shrink-0" />
+              <input
+                type="date"
+                autoFocus
+                value={launchStartDate}
+                onChange={e => setLaunchStartDate(e.target.value)}
+                className="text-sm text-slate-800 border-none outline-none bg-transparent"
+              />
+              <button
+                onClick={() => updateStartDate(launchStartDate)}
+                disabled={savingDate}
+                className="text-xs bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1 rounded-lg font-medium disabled:opacity-50"
+              >
+                {savingDate ? '...' : 'Salvar'}
+              </button>
+              <button onClick={() => setShowDatePicker(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setShowDatePicker(true)} title="Clique para definir a data de início do lançamento">
+              <Calendar className="w-4 h-4 mr-2" />
+              {launchStartDate ? format(new Date(launchStartDate + 'T12:00:00'), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}
+            </Button>
+          )}
           <Button size="sm" className="bg-violet-600 hover:bg-violet-700" onClick={() => setShowNewTaskModal(true)}>
             Nova Tarefa
           </Button>

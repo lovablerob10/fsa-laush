@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Save, Sparkles, Loader2, ChevronRight, ChevronLeft, Check, Plus, X,
   User, Package, Target, Lightbulb, Palette, Wand2, Calendar, ArrowRight,
-  ExternalLink
+  ExternalLink, Upload, Camera
 } from 'lucide-react';
 
 import { useAuthStore, useUIStore } from '@/store';
@@ -107,6 +107,37 @@ export function ExpertBriefing() {
   const [planError, setPlanError] = useState('');
   const [exportingNotion, setExportingNotion] = useState<string | null>(null);
   const [notionPicker, setNotionPicker] = useState<{ type: string; title: string; content: string } | null>(null);
+  // Multi-photo upload: up to 10 expert photos stored as { dataUrl, name }[]
+  const [expertPhotos, setExpertPhotos] = useState<Array<{ dataUrl: string; name: string }>>([]);
+
+  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    const remaining = 10 - expertPhotos.length;
+    const toProcess = files.slice(0, remaining);
+    toProcess.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const dataUrl = ev.target?.result as string;
+        setExpertPhotos(prev => {
+          const updated = [...prev, { dataUrl, name: file.name }].slice(0, 10);
+          // Store first photo URL in briefing for compatibility
+          set('expert_photo_url', updated[0]?.dataUrl || '');
+          return updated;
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+    // Reset input
+    e.target.value = '';
+  }
+
+  function removePhoto(idx: number) {
+    setExpertPhotos(prev => {
+      const updated = prev.filter((_, i) => i !== idx);
+      set('expert_photo_url', updated[0]?.dataUrl || '');
+      return updated;
+    });
+  }
 
 
   const [data, setData] = useState<BriefingData>({
@@ -339,9 +370,53 @@ export function ExpertBriefing() {
             <Field label="Biografia / História do Expert *" onGenerateAI={() => handleGenerateField('expert_bio', 'Biografia / História do Expert')} isGenerating={generatingField === 'expert_bio'}>
               <textarea value={data.expert_bio || ''} onChange={e => set('expert_bio', e.target.value)} rows={5} placeholder="Conte a trajetória, conquistas e resultados..." className="input-theme resize-none" />
             </Field>
-            <Field label="URL da Foto">
-              <input value={data.expert_photo_url || ''} onChange={e => set('expert_photo_url', e.target.value)} placeholder="https://..." type="url" className="input-theme" />
-            </Field>
+            {/* Multi-photo upload — up to 10 photos */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-violet-400" /> Fotos do Expert
+                  <span className="text-xs text-muted-foreground ml-1">({expertPhotos.length}/10)</span>
+                </label>
+                {expertPhotos.length < 10 && (
+                  <label className="cursor-pointer flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded-lg px-3 py-1.5 transition-colors hover:bg-violet-500/10">
+                    <Upload className="w-3.5 h-3.5" />
+                    {expertPhotos.length === 0 ? 'Enviar fotos' : 'Adicionar mais'}
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload} />
+                  </label>
+                )}
+              </div>
+              {expertPhotos.length === 0 ? (
+                <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-border/60 rounded-xl cursor-pointer hover:border-violet-400/60 hover:bg-violet-500/5 transition-all">
+                  <Camera className="w-8 h-8 text-muted-foreground mb-2" />
+                  <span className="text-sm text-muted-foreground">Arraste ou clique para enviar fotos do expert</span>
+                  <span className="text-xs text-muted-foreground mt-0.5">Até 10 fotos • JPG, PNG, WebP</span>
+                  <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload} />
+                </label>
+              ) : (
+                <div className="grid grid-cols-5 gap-2">
+                  {expertPhotos.map((photo, idx) => (
+                    <div key={idx} className="relative group aspect-square rounded-lg overflow-hidden border border-border/60">
+                      <img src={photo.dataUrl} alt={photo.name} className="w-full h-full object-cover" />
+                      {idx === 0 && (
+                        <div className="absolute top-1 left-1 bg-violet-600 text-white text-[9px] font-bold px-1 rounded">Principal</div>
+                      )}
+                      <button
+                        onClick={() => removePhoto(idx)}
+                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                  {expertPhotos.length < 10 && (
+                    <label className="aspect-square rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-violet-400/60 transition-colors">
+                      <Plus className="w-5 h-5 text-muted-foreground" />
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload} />
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
             <TagInput label="Credenciais" values={data.expert_credentials || []} onChange={v => set('expert_credentials', v)} placeholder="Ex: MBA em Marketing → Enter" onGenerateAI={() => handleGenerateField('expert_credentials', 'Credenciais Acadêmicas ou Profissionais')} isGenerating={generatingField === 'expert_credentials'} />
           </div>
         )}
