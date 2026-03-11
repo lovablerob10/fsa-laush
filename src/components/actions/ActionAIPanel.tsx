@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     X, Sparkles, Loader2, Copy, Check, RefreshCw, ChevronLeft, ChevronRight,
     Instagram, Mail, MessageCircle, Video, FileText,
@@ -282,9 +282,12 @@ export function ActionAIPanel({ action, onClose }: Props) {
     const [carouselProgress, setCarouselProgress] = useState(0);
     const [generatingCarousel, setGeneratingCarousel] = useState(false);
     const [generatingScript, setGeneratingScript] = useState(false);
+    const [scriptApproved, setScriptApproved] = useState(false);
     const [activeSlide, setActiveSlide] = useState(0);
     // Script: array of { texto_principal, legenda_apoio } per slide
     const [carouselScript, setCarouselScript] = useState<Array<{ texto_principal: string; legenda_apoio?: string }> | null>(null);
+    // AbortController to allow cancelling mid-generation
+    const carouselAbortRef = useRef<AbortController | null>(null);
 
     // Expert photo upload state
     const [uploadedPhoto, setUploadedPhoto] = useState<{ base64: string; mimeType: string; preview: string } | null>(null);
@@ -441,13 +444,27 @@ export function ActionAIPanel({ action, onClose }: Props) {
     ): string {
         const b = briefingData || {};
         const ac = ASPECT_CONFIGS[aspectRatio];
+
+        // Build brand-aware palette: prefer briefing brand colors if available
+        const brandColors = [
+            b.brand_primary_color,
+            b.primary_color,
+            b.color_palette,
+            b.brand_colors,
+        ].find(v => v && typeof v === 'string' && v.trim());
+
         const styleMap: Record<string, string> = {
             profissional: 'Dark navy and deep violet gradient (#0F0A2E to #1A0A3E). Bold white typography. Electric violet accent glows.',
             vibrante: 'Electric purple to hot pink gradient (#7C3AED to #EC4899). Neon glow effects.',
             elegante: 'Deep black (#0A0A0A). Gold/champagne (#D4AF37) typography. Luxury minimal.',
             minimalista: 'Light gray background. Single deep violet accent. Clean sans-serif.',
         };
-        const palette = styleMap[imageStyle] || styleMap.profissional;
+        // If briefing has brand colors, override the base style with them
+        const basePalette = styleMap[imageStyle] || styleMap.profissional;
+        const palette = brandColors
+            ? `${basePalette} BRAND ACCENT COLORS FROM CLIENT: ${brandColors}. Incorporate these colors prominently.`
+            : basePalette;
+
         const isFirst = slideIndex === 0;
         const isLast = slideIndex === totalSlides - 1;
 
@@ -491,6 +508,14 @@ EXPERT NAME (bottom): "${b.expert_name || ''}"`.trim();
         ].join('\n');
     }
 
+    // ── Cancel carousel generation ──
+    function cancelCarousel() {
+        carouselAbortRef.current?.abort();
+        setGeneratingCarousel(false);
+        setGeneratingScript(false);
+        setCarouselProgress(0);
+    }
+
     // ── Phase 1: Generate AIDA script via Gemini ──
     async function generateCarouselScript(numSlides: number): Promise<Array<{ texto_principal: string; legenda_apoio?: string }>> {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -501,101 +526,124 @@ EXPERT NAME (bottom): "${b.expert_name || ''}"`.trim();
         )?.content?.split('\n')[0]?.replace(/^"|"|\.\*/g, '').trim())
             || b.main_promise || action.title || 'Transforme sua vida agora';
 
+        // Extract ALL distinct benefit/content lines from generated blocks for context
+        const allBenefits = blocks
+            .map(bl => bl.content.split('\n').filter(l => l.trim().length > 5).slice(0, 2).join(' | '))
+            .filter(Boolean)
+            .slice(0, 10)
+            .join('\n- ');
+
         const contextLines = [
             b.expert_name ? `Expert: ${b.expert_name}` : '',
             b.product_name ? `Produto: ${b.product_name}` : '',
             b.target_audience ? `Público-alvo: ${b.target_audience}` : '',
             b.main_promise ? `Promessa principal: ${b.main_promise}` : '',
             b.differentiation ? `Diferencial: ${b.differentiation}` : '',
+            b.main_benefit ? `Benefício principal: ${b.main_benefit}` : '',
+            b.audience_pain_points?.length ? `Dores do público: ${Array.isArray(b.audience_pain_points) ? b.audience_pain_points.join(', ') : b.audience_pain_points}` : '',
+            b.audience_desires?.length ? `Desejos do público: ${Array.isArray(b.audience_desires) ? b.audience_desires.join(', ') : b.audience_desires}` : '',
+            b.product_bonuses?.length ? `Bônus: ${Array.isArray(b.product_bonuses) ? b.product_bonuses.join(', ') : b.product_bonuses}` : '',
             action.objective ? `Objetivo da ação: ${action.objective}` : '',
             `Tema do carrossel: ${rawHeadline}`,
+            allBenefits ? `Pontos de valor disponíveis:\n- ${allBenefits}` : '',
         ].filter(Boolean).join('\n');
 
         const prompt = `Você é um Copywriter Estratégico Sênior especializado em marketing digital brasileiro.
 
-Contexto:
+Contexto completo do produto/expert:
 ${contextLines}
 
 Crie um roteiro narrativo AIDA para um carrossel de Instagram com EXATAMENTE ${numSlides} slides.
-CADA slide deve ter um texto ÚNICO e COMPLEMENTAR ao anterior. É PROIBIDO repetir a mesma frase.
+
+❌ REGRA ABSOLUTA: É COMPLETAMENTE PROIBIDO repetir ou parafrasear a mesma ideia em slides diferentes.
+✅ REGRA: Cada slide deve abordar um ângulo DIFERENTE e COMPLEMENTAR. O leitor deve aprender algo novo em cada slide.
 
 Estrutura obrigatória:
-- Slide 1 (Atenção/Gancho): Headline de impacto que gera curiosidade. Máx 50 chars.
-- Slides do meio (Interesse/Desejo): Benefícios DISTINTOS ou passos do método. Cada slide traz um novo ângulo. Máx 50 chars no texto_principal.
-- Último slide (Ação/CTA): Call to action claro e direto. Ex: "Clique e comece agora". No campo legenda_apoio, coloque o texto do botão CTA.
+- Slide 1 (Gancho): Headline de impacto que gera curiosidade imediata. Deve ser uma promessa forte ou pergunta provocativa. Máx 50 chars.
+- Slides do meio: CADA um deve focar em UM benefício ou passo DIFERENTE. Use os "Pontos de valor disponíveis" acima como inspiração. Não repita palavras.
+- Último slide (CTA): Chamada única e direta. No campo legenda_apoio, coloque o texto exato do botão.
 
-Limite de caracteres: texto_principal máx 60 chars, legenda_apoio máx 50 chars.
+Limites: texto_principal máx 55 chars. legenda_apoio máx 45 chars.
 
-Responda SOMENTE com JSON válido neste formato (sem markdown, sem texto extra):
+Exemplo de ROTEIRO CORRETO (5 slides):
+Slide 1: "Seus alunos somem após 30 dias?"
+Slide 2: "O erro é focar em conteúdo, não em suporte"
+Slide 3: "Metodologia clara = aluno que termina e indica"
+Slide 4: "Processo de onboarding que retm 80% dos alunos"
+Slide 5: "Comece agora com a FSA"
+
+Responda SOMENTE com JSON válido (sem markdown, sem texto extra):
 {
   "slides": [
     { "numero": 1, "texto_principal": "...", "legenda_apoio": "..." },
-    ...
+    { "numero": 2, "texto_principal": "...", "legenda_apoio": "..." }
   ]
 }`;
 
         const res = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.85, maxOutputTokens: 2048 } }) }
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.95, maxOutputTokens: 2048 } }) }
         );
         if (!res.ok) throw new Error('Erro ao gerar roteiro');
         const data = await res.json();
         const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        // Strip markdown code fences if present
         const json = raw.replace(/```json?\n?/gi, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(json);
         return parsed.slides.map((s: any) => ({ texto_principal: s.texto_principal, legenda_apoio: s.legenda_apoio }));
     }
 
-    // ── Phase 2: Generate carousel images using the script ──
+    // ── Phase 1 only: Generate script and wait for approval ──
+    async function generateScriptOnly() {
+        setCarouselScript(null);
+        setScriptApproved(false);
+        setCarouselSlides([]);
+        setCarouselProgress(0);
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) return;
+        try {
+            setGeneratingScript(true);
+            const script = await generateCarouselScript(slideCount);
+            setCarouselScript(script);
+        } catch (err) {
+            console.error('Script generation failed:', err);
+        } finally {
+            setGeneratingScript(false);
+        }
+    }
+
+    // ── Phase 2: Generate carousel images after user approves script ──
     async function generateCarousel() {
+        if (!carouselScript) return;
+        const abort = new AbortController();
+        carouselAbortRef.current = abort;
         setGeneratingCarousel(true);
         setCarouselSlides([]);
         setCarouselProgress(0);
         setActiveSlide(0);
-        setCarouselScript(null);
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) { setGeneratingCarousel(false); return; }
 
-        // Phase 1: Generate AIDA script
-        let script: Array<{ texto_principal: string; legenda_apoio?: string }>;
-        try {
-            setGeneratingScript(true);
-            script = await generateCarouselScript(slideCount);
-            setCarouselScript(script);
-        } catch (err: any) {
-            // Fallback: build a basic script from existing blocks if Gemini script fails
-            const rawHeadline = (blocks.find(bl => bl.label.toLowerCase().includes('headline'))?.content?.split('\n')[0]?.trim()) || briefing?.main_promise || 'Transforme sua vida agora';
-            const benefits = blocks.filter(bl => bl.label.toLowerCase().includes('beneficio') || bl.label.toLowerCase().includes('benefit')).map(bl => bl.content.split('\n')[0].trim());
-            script = Array.from({ length: slideCount }, (_, i) => {
-                if (i === 0) return { texto_principal: rawHeadline.substring(0, 55), legenda_apoio: 'Deslize para descobrir →' };
-                if (i === slideCount - 1) return { texto_principal: 'Pronto para começar?', legenda_apoio: 'Quero Começar' };
-                return { texto_principal: (benefits[i - 1] || briefing?.main_benefit || 'Benefício chave').substring(0, 55), legenda_apoio: undefined };
-            });
-            setCarouselScript(script);
-        } finally {
-            setGeneratingScript(false);
-        }
-
-        // Phase 2: Generate images slide by slide using script
         const slides: Array<{ base64: string; mimeType: string }> = [];
         for (let i = 0; i < slideCount; i++) {
+            if (abort.signal.aborted) break;
             try {
-                const scriptSlide = script[i] || { texto_principal: `Slide ${i + 1}` };
+                const scriptSlide = carouselScript[i] || { texto_principal: `Slide ${i + 1}` };
                 const prompt = buildCarouselSlidePrompt(i, slideCount, scriptSlide, briefing);
                 const parts: any[] = uploadedPhoto
                     ? [{ inlineData: { mimeType: uploadedPhoto.mimeType, data: uploadedPhoto.base64 } }, { text: 'Use the person in this photo as the expert. ' + prompt }]
                     : [{ text: prompt }];
                 const res = await fetch(
                     'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=' + apiKey,
-                    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }] }) }
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }] }), signal: abort.signal }
                 );
                 if (res.ok) {
                     const data = await res.json();
                     const imgPart = (data.candidates?.[0]?.content?.parts || []).find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
                     if (imgPart?.inlineData) slides.push({ base64: imgPart.inlineData.data, mimeType: imgPart.inlineData.mimeType });
                 }
-            } catch { /* skip failed slide */ }
+            } catch (e: any) {
+                if (e?.name === 'AbortError') break;
+            }
             setCarouselProgress(Math.round(((i + 1) / slideCount) * 100));
         }
         setCarouselSlides(slides);
@@ -1091,10 +1139,11 @@ Responda SOMENTE com JSON válido neste formato (sem markdown, sem texto extra):
 
                             {carouselMode ? (
                                 <div className="space-y-2">
+                                    {/* Slide count selector */}
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs text-slate-400">Slides:</span>
                                         {([3, 5, 7] as const).map(n => (
-                                            <button key={n} onClick={() => setSlideCount(n)}
+                                            <button key={n} onClick={() => { setSlideCount(n); setCarouselScript(null); setScriptApproved(false); }}
                                                 className={cn('px-3 py-1 rounded-lg text-xs font-bold border transition-all',
                                                     slideCount === n ? 'border-pink-500 bg-pink-500/10 text-pink-300' : 'border-slate-700 text-slate-500')}
                                             >{n}</button>
@@ -1106,15 +1155,27 @@ Responda SOMENTE com JSON válido neste formato (sem markdown, sem texto extra):
                                             </button>
                                         )}
                                     </div>
+
+                                    {/* Phase 1 spinner */}
                                     {generatingScript && (
-                                        <div className="flex items-center gap-2 text-xs text-violet-400 py-1">
-                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                            <span>Gerando roteiro narrativo AIDA...</span>
+                                        <div className="flex items-center justify-between text-xs text-violet-400 py-1 bg-violet-900/20 rounded-lg px-3">
+                                            <div className="flex items-center gap-2">
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                <span>Gerando roteiro narrativo AIDA...</span>
+                                            </div>
+                                            <button onClick={cancelCarousel} className="text-red-400 hover:text-red-300 font-bold text-[10px]">✕ Cancelar</button>
                                         </div>
                                     )}
+
+                                    {/* Script preview — user must approve before images are generated */}
                                     {carouselScript && !generatingScript && (
                                         <div className="rounded-xl bg-slate-900/60 border border-violet-500/20 p-3 space-y-2">
-                                            <p className="text-[10px] font-bold text-violet-400 uppercase tracking-widest">📋 Roteiro do Carrossel</p>
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-[10px] font-bold text-violet-400 uppercase tracking-widest">📋 Roteiro — Revise antes de gerar</p>
+                                                <button onClick={generateScriptOnly} className="text-[10px] text-slate-400 hover:text-violet-300 border border-slate-700 rounded px-2 py-0.5">
+                                                    🔄 Regerar
+                                                </button>
+                                            </div>
                                             {carouselScript.map((s, i) => (
                                                 <div key={i} className="flex items-start gap-2">
                                                     <span className="text-[10px] font-bold text-pink-400 w-5 shrink-0">
@@ -1128,25 +1189,42 @@ Responda SOMENTE com JSON válido neste formato (sem markdown, sem texto extra):
                                             ))}
                                         </div>
                                     )}
-                                    {generatingCarousel && (
 
+                                    {/* Phase 2 progress + cancel */}
+                                    {generatingCarousel && (
                                         <div className="space-y-1">
                                             <div className="flex items-center justify-between text-xs text-slate-400">
-                                                <span>Gerando slides...</span><span>{carouselProgress}%</span>
+                                                <span>Gerando slides...</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span>{carouselProgress}%</span>
+                                                    <button onClick={cancelCarousel} className="text-red-400 hover:text-red-300 font-bold border border-red-500/30 rounded px-1.5 py-0.5 text-[10px]">✕ Parar</button>
+                                                </div>
                                             </div>
                                             <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                                 <div className="h-full bg-gradient-to-r from-pink-500 to-violet-500 rounded-full transition-all duration-500" style={{ width: carouselProgress + '%' }} />
                                             </div>
                                         </div>
                                     )}
-                                    <Button onClick={generateCarousel} disabled={generatingCarousel}
-                                        className="w-full font-semibold bg-gradient-to-r from-pink-600 to-violet-600 hover:from-pink-500 hover:to-violet-500 text-white shadow-lg shadow-pink-500/20">
-                                        {generatingCarousel
-                                            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Gerando {slideCount} slides...</>
-                                            : <><Zap className="w-4 h-4 mr-2" />🎠 Gerar Carrossel ({slideCount} slides)</>
-                                        }
-                                    </Button>
+
+                                    {/* Phase 1 button OR Phase 2 approve button */}
+                                    {!generatingCarousel && (
+                                        carouselScript ? (
+                                            <Button onClick={generateCarousel}
+                                                className="w-full font-semibold bg-gradient-to-r from-emerald-600 to-violet-600 hover:from-emerald-500 hover:to-violet-500 text-white shadow-lg">
+                                                <Zap className="w-4 h-4 mr-2" />✅ Aprovar Roteiro e Gerar {slideCount} Slides
+                                            </Button>
+                                        ) : (
+                                            <Button onClick={generateScriptOnly} disabled={generatingScript}
+                                                className="w-full font-semibold bg-gradient-to-r from-pink-600 to-violet-600 hover:from-pink-500 hover:to-violet-500 text-white shadow-lg shadow-pink-500/20">
+                                                {generatingScript
+                                                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Gerando roteiro...</>
+                                                    : <><Sparkles className="w-4 h-4 mr-2" />📋 Gerar Roteiro AIDA ({slideCount} slides)</>
+                                                }
+                                            </Button>
+                                        )
+                                    )}
                                 </div>
+
                             ) : (
                                 <div className="flex gap-3">
                                     {generatedImage && (
