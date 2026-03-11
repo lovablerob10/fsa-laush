@@ -65,7 +65,9 @@ async function callGemini(prompt: string, temperature = 0.7): Promise<string> {
 }
 
 export function RAGManager() {
-  const { tenant } = useAuthStore();
+  const { tenant, activeTenant } = useAuthStore() as any;
+  // Use activeTenant (the selected client) — falls back to tenant (logged-in user) if not set
+  const currentTenant = activeTenant ?? tenant;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Documents state
@@ -94,13 +96,15 @@ export function RAGManager() {
 
   // ---- Load documents from Supabase ----
   const loadDocuments = useCallback(async () => {
-    if (!tenant?.id) return;
+    if (!currentTenant?.id) return;
     setIsLoading(true);
+    // Clear documents immediately when switching tenants
+    setDocuments([]);
     try {
       const { data, error: err } = await supabase
         .from('documents')
         .select('*')
-        .eq('tenant_id', tenant.id)
+        .eq('tenant_id', currentTenant.id)
         .order('created_at', { ascending: false });
 
       if (err) throw err;
@@ -111,7 +115,7 @@ export function RAGManager() {
     } finally {
       setIsLoading(false);
     }
-  }, [tenant?.id]);
+  }, [currentTenant?.id]);
 
   useEffect(() => {
     loadDocuments();
@@ -131,7 +135,7 @@ export function RAGManager() {
   // ---- Upload file ----
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !tenant?.id) return;
+    if (!file || !currentTenant?.id) return;
 
     setIsUploading(true);
     setUploadProgress(10);
@@ -162,7 +166,7 @@ export function RAGManager() {
             'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
-            tenantId: tenant.id,
+            tenantId: currentTenant.id,
             fileName: file.name,
             fileType: file.name.split('.').pop()?.toLowerCase() || 'txt',
             fileContent: text,
