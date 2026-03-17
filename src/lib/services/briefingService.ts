@@ -91,6 +91,12 @@ export interface BriefingData {
     framework_page?: string;
     framework_email?: string;
     framework_whatsapp?: string;
+    // Brand Identity Visual
+    brand_primary_color?: string;
+    brand_secondary_color?: string;
+    brand_accent_color?: string;
+    brand_logo_url?: string;
+    brand_font?: string;
     status?: 'draft' | 'approved';
 }
 
@@ -132,7 +138,7 @@ export const briefingService = {
 // =============================================
 // Build prompt from briefing data
 // =============================================
-function buildPrompt(briefing: BriefingData, contentType: string): string {
+function buildPrompt(briefing: BriefingData, contentType: string, dossierContext?: string, frameworkInstruction?: string): string {
     const context = `
 Expert: ${briefing.expert_name || ''}
 Bio: ${briefing.expert_bio || ''}
@@ -150,13 +156,35 @@ Objeções: ${briefing.audience_objections?.join(', ') || ''}
 Promessa Central: ${briefing.main_promise || ''}
 Benefício: ${briefing.main_benefit || ''}
 Diferencial: ${briefing.differentiation || ''}
-Tom de voz: ${briefing.voice_tones?.join(', ') || ''}
-Palavras para usar: ${briefing.words_to_use?.join(', ') || ''}
-Palavras para evitar: ${briefing.words_to_avoid?.join(', ') || ''}`.trim();
 
+IDENTIDADE DE MARCA:
+Tom de voz: ${briefing.voice_tones?.join(', ') || 'profissional e engajante'}
+Palavras para usar: ${briefing.words_to_use?.join(', ') || ''}
+Palavras para evitar: ${briefing.words_to_avoid?.join(', ') || ''}
+Cor Primária: ${briefing.brand_primary_color || ''}
+Cor Secundária: ${briefing.brand_secondary_color || ''}
+Cor de Acento: ${briefing.brand_accent_color || ''}
+Fonte: ${briefing.brand_font || 'Inter'}`.trim();
+
+    const dossierSection = dossierContext ? `\n\nCONTEXTO EXTRA DO DOSSIÊ IA (materiais, artigos, metodologias do expert):\n${dossierContext}` : '';
+
+    // Se tem framework, usa o framework como base em vez do prompt hardcoded
+    if (frameworkInstruction) {
+        return `Você é um copywriter especialista em lançamentos digitais brasileiros.
+Sua missão é gerar conteúdo seguindo RIGOROSAMENTE o framework abaixo, usando os dados do briefing.
+
+${frameworkInstruction}
+
+IMPORTANTE: Respeite RIGOROSAMENTE a identidade de marca — use o tom de voz indicado, as palavras sugeridas e NUNCA use as palavras proibidas.
+Se houver contexto extra do dossiê IA, use para enriquecer com referências reais do expert.
+
+BRIEFING:\n${context}${dossierSection}`;
+    }
+
+    // Prompts padrão (fallback quando não há framework)
     const prompts: Record<string, string> = {
         page: `Você é um copywriter especialista em lançamentos digitais brasileiros.
-Com base no briefing abaixo, escreva uma PÁGINA DE VENDAS completa em português (pt-BR):
+Com base no briefing e no dossiê do expert abaixo, escreva uma PÁGINA DE VENDAS completa em português (pt-BR):
 - Headline impactante
 - Subheadline
 - História do expert (conexão emocional)
@@ -168,7 +196,10 @@ Com base no briefing abaixo, escreva uma PÁGINA DE VENDAS completa em portuguê
 - Garantia incondicional
 - CTA com urgência e escassez
 
-BRIEFING:\n${context}`,
+IMPORTANTE: Respeite RIGOROSAMENTE a identidade de marca — use o tom de voz indicado, as palavras sugeridas e NUNCA use as palavras proibidas.
+Se houver contexto extra do dossiê IA, use essas informações para enriquecer a copy com referências reais do expert (métodos, histórias, resultados).
+
+BRIEFING:\n${context}${dossierSection}`,
 
         email_sequence: `Você é um copywriter especialista em email marketing para lançamentos digitais.
 Escreva uma SEQUÊNCIA DE 5 EMAILS para a semana de abertura de carrinho:
@@ -179,8 +210,10 @@ Escreva uma SEQUÊNCIA DE 5 EMAILS para a semana de abertura de carrinho:
 - Email 5: Último dia (urgência máxima)
 
 Cada email deve ter: Assunto, Corpo e CTA. Linguagem humana, sem parecer IA.
+IMPORTANTE: Respeite a identidade de marca — tom de voz, palavras a usar, e NUNCA use palavras proibidas.
+Se houver contexto extra do dossiê, use para enriquecer com referências e métodos reais do expert.
 
-BRIEFING:\n${context}`,
+BRIEFING:\n${context}${dossierSection}`,
 
         whatsapp: `Você é especialista em vendas pelo WhatsApp para lançamentos digitais.
 Escreva 5 MENSAGENS DE WHATSAPP para disparar durante o lançamento:
@@ -191,8 +224,10 @@ Escreva 5 MENSAGENS DE WHATSAPP para disparar durante o lançamento:
 - Msg 5: Último chamado (FOMO)
 
 Mensagens curtas, com emojis, tom direto e engajante. Máximo 300 caracteres cada.
+IMPORTANTE: Use EXATAMENTE o tom de voz da marca e as palavras sugeridas. NUNCA use palavras proibidas.
+Se houver contexto extra do dossiê, use para personalizar com métodos e referências reais.
 
-BRIEFING:\n${context}`,
+BRIEFING:\n${context}${dossierSection}`,
 
         campaign: `Você é um estrategista de lançamentos digitais.
 Crie um PLANO DE CONTEÚDO para redes sociais (4 semanas de pré-lançamento):
@@ -202,8 +237,10 @@ Crie um PLANO DE CONTEÚDO para redes sociais (4 semanas de pré-lançamento):
 - Semana 4: Abertura de carrinho (5 posts)
 
 Para cada post: Plataforma (Instagram/YouTube/TikTok), Formato (Reel/Carrossel/Story), Tema, Texto principal.
+IMPORTANTE: Respeite a identidade de marca (tom, palavras, estilo) em TODOS os posts.
+Se houver contexto do dossiê, use para enriquecer com conteúdo real do expert.
 
-BRIEFING:\n${context}`,
+BRIEFING:\n${context}${dossierSection}`,
     };
 
     return prompts[contentType] || '';
@@ -212,8 +249,46 @@ BRIEFING:\n${context}`,
 // =============================================
 // Google Gemini API (AI Studio)
 // =============================================
-export async function generateWithGemini(briefing: BriefingData, contentType: string): Promise<string> {
-    const prompt = buildPrompt(briefing, contentType);
+export async function generateWithGemini(briefing: BriefingData, contentType: string, tenantId?: string, frameworkId?: string): Promise<string> {
+    // Buscar contexto extra do Dossiê IA via RAG
+    let dossierContext = '';
+    let frameworkInstruction = '';
+
+    if (tenantId) {
+        // Dossiê IA
+        try {
+            const { getKnowledgeContext } = await import('@/lib/services/knowledgeService');
+            const query = `${contentType} ${briefing.product_name || ''} ${briefing.expert_name || ''} ${briefing.main_promise || ''}`;
+            dossierContext = await getKnowledgeContext(tenantId, query, 5);
+            if (dossierContext) {
+                console.log(`[Dossiê IA] Contexto RAG injetado: ${dossierContext.length} chars para ${contentType}`);
+            }
+        } catch (err) {
+            console.warn('[Dossiê IA] Erro ao buscar contexto RAG:', err);
+        }
+
+        // Frameworks: busca tipo específico + contextuais (general)
+        try {
+            const { resolveAllFrameworks, getFrameworkById, buildFrameworkInstruction } = await import('@/lib/services/frameworkService');
+            if (frameworkId) {
+                const fw = await getFrameworkById(frameworkId);
+                if (fw) {
+                    frameworkInstruction = buildFrameworkInstruction(fw);
+                    console.log(`[Framework] Override manual: "${fw.name}" para ${contentType}`);
+                }
+            } else {
+                const resolved = await resolveAllFrameworks(tenantId, contentType);
+                if (resolved.all.length > 0) {
+                    frameworkInstruction = buildFrameworkInstruction(resolved.all);
+                    console.log(`[Framework] Resolvidos ${resolved.all.length} frameworks para ${contentType}:`, resolved.all.map(f => `"${f.name}" (${f.type}/${f.is_global ? 'global' : 'tenant'})`).join(', '));
+                }
+            }
+        } catch (err) {
+            console.warn('[Framework] Erro ao resolver:', err);
+        }
+    }
+
+    const prompt = buildPrompt(briefing, contentType, dossierContext || undefined, frameworkInstruction || undefined);
     if (!prompt) throw new Error('Tipo de conteúdo não reconhecido');
     return callGeminiWithFallback(prompt, { temperature: 0.85, maxOutputTokens: 8192, topP: 0.95 });
 }
@@ -298,9 +373,27 @@ export interface LaunchPlan7Weeks {
     weeks: WeekPlan[];
 }
 
-export async function generate7WeekPlan(briefing: BriefingData): Promise<LaunchPlan7Weeks> {
+export async function generate7WeekPlan(briefing: BriefingData, tenantId?: string): Promise<LaunchPlan7Weeks> {
+    // Resolve frameworks de lançamento (general) para enriquecer o plano
+    let frameworkContext = '';
+    if (tenantId) {
+        try {
+            const { resolveAllFrameworks, buildFrameworkInstruction } = await import('@/lib/services/frameworkService');
+            const resolved = await resolveAllFrameworks(tenantId, 'campaign');
+            if (resolved.all.length > 0) {
+                frameworkContext = buildFrameworkInstruction(resolved.all);
+                console.log(`[LaunchPlan+Framework] ${resolved.all.length} frameworks contextuais:`, resolved.all.map(f => f.name));
+            }
+        } catch { /* sem frameworks — usa padrão */ }
+    }
+
+    const frameworkSection = frameworkContext
+        ? `\n\nFRAMEWORKS ESTRATÉGICOS DA AGÊNCIA (use como referência para estrutura, fases e estratégia):\n${frameworkContext}\n\nIMPORTANTE: Se os frameworks indicarem um fluxo operacional específico (ex: 8 semanas), ADAPTE o número de semanas e fases do plano para seguir a estrutura do framework.`
+        : '';
+
     const prompt = `Você é um estrategista de elite especialista em lançamentos digitais no mercado brasileiro.
-Sua missão: criar um PLANO DE LANÇAMENTO COMPLETO DE 7 SEMANAS personalizado para esse expert.
+Sua missão: criar um PLANO DE LANÇAMENTO COMPLETO personalizado para esse expert.
+${frameworkSection}
 
 BRIEFING DO EXPERT:
 - Nome: ${briefing.expert_name || 'Expert'}
@@ -315,12 +408,12 @@ BRIEFING DO EXPERT:
 - Objeções: ${briefing.audience_objections?.join(', ') || ''}
 - Credenciais: ${briefing.expert_credentials?.join(', ') || ''}
 
-Crie um plano de 7 semanas com as 5 fases padrão do lançamento digital:
+${frameworkContext ? 'Siga a estrutura de fases e semanas indicada nos FRAMEWORKS ESTRATÉGICOS acima.' : `Crie um plano de 7 semanas com as 5 fases padrão do lançamento digital:
 - Fase 1 (planning): Semana 1 — Planejamento estratégico
 - Fase 2 (anticipation): Semanas 2-3 — Antecipação, geração de leads e aquecimento
 - Fase 3 (sales): Semanas 4-5 — Abertura de carrinho, lives de vendas, fechamento
 - Fase 4 (immersion): Semana 6 — Entrega, onboarding, primeiras aulas
-- Fase 5 (upsell): Semana 7 — Upsell, retenção, pesquisa NPS
+- Fase 5 (upsell): Semana 7 — Upsell, retenção, pesquisa NPS`}
 
 Retorne SOMENTE um JSON válido (sem markdown) com esta estrutura:
 {
@@ -352,5 +445,6 @@ REGRAS CRÍTICAS:
     const raw = await callGeminiWithFallback(prompt, { temperature: 0.8, maxOutputTokens: 16384, topP: 0.95 });
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     return JSON.parse(cleaned) as LaunchPlan7Weeks;
+
 }
 

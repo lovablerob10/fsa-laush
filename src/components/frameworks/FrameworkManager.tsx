@@ -13,7 +13,9 @@ import {
   Building2,
   Lock,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Edit3,
+  X
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,6 +58,9 @@ export function FrameworkManager() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState<Partial<Framework>>({});
 
   const [newFramework, setNewFramework] = useState<Partial<Framework>>({
     type: 'page',
@@ -100,12 +105,12 @@ export function FrameworkManager() {
       const { data, error: err } = await supabase
         .from('frameworks')
         .insert({
-          tenant_id: tenant.id,
+          tenant_id: newFramework.is_global ? null : tenant.id,
           name: newFramework.name,
           type: newFramework.type || 'general',
           content: newFramework.content,
           description: newFramework.description || '',
-          is_global: false,
+          is_global: newFramework.is_global || false,
         } as any)
         .select()
         .single();
@@ -117,6 +122,41 @@ export function FrameworkManager() {
       setShowNewDialog(false);
       setNewFramework({ type: 'page', name: '', description: '', content: '', is_global: false });
       setSuccess(`Framework "${data.name}" criado com sucesso!`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ---- Update framework ----
+  const handleUpdateFramework = async () => {
+    if (!selectedFramework || !editData.name || !editData.content) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const { error: err } = await supabase
+        .from('frameworks')
+        .update({
+          name: editData.name,
+          type: editData.type || 'general',
+          description: editData.description || '',
+          content: editData.content,
+          is_global: editData.is_global || false,
+          tenant_id: editData.is_global ? null : (selectedFramework.tenant_id || tenant?.id),
+        } as any)
+        .eq('id', selectedFramework.id);
+
+      if (err) throw err;
+      setFrameworks(prev => prev.map(f =>
+        f.id === selectedFramework.id
+          ? { ...f, name: editData.name!, type: editData.type as any || 'general', description: editData.description || '', content: editData.content!, is_global: editData.is_global || false }
+          : f
+      ));
+      setIsEditing(false);
+      setSelectedFramework(null);
+      setSuccess(`Framework "${editData.name}" atualizado!`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
       setError(err.message);
@@ -206,6 +246,18 @@ export function FrameworkManager() {
                 onClick={() => setSelectedFramework(framework)}
               >
                 <BookOpen className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-violet-600"
+                onClick={() => {
+                  setSelectedFramework(framework);
+                  setEditData({ name: framework.name, type: framework.type, description: framework.description, content: framework.content, is_global: framework.is_global });
+                  setIsEditing(true);
+                }}
+              >
+                <Edit3 className="w-4 h-4" />
               </Button>
               {!isGlobal && (
                 <Button
@@ -399,8 +451,34 @@ export function FrameworkManager() {
           <div className="space-y-4">
             <div className="bg-violet-50 rounded-lg p-3">
               <p className="text-sm text-violet-700">
-                Este framework será exclusivo do cliente <strong>{tenant?.name}</strong>
+                {newFramework.is_global
+                  ? <>Este framework será <strong>global (padrão da agência)</strong> — disponível para TODOS os clientes.</>
+                  : <>Este framework será exclusivo do cliente <strong>{tenant?.name}</strong></>}
               </p>
+            </div>
+
+            {/* Toggle Global */}
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50">
+              <button
+                type="button"
+                onClick={() => setNewFramework({ ...newFramework, is_global: !newFramework.is_global })}
+                className={cn(
+                  'relative w-11 h-6 rounded-full transition-colors',
+                  newFramework.is_global ? 'bg-amber-500' : 'bg-slate-300'
+                )}
+              >
+                <div className={cn(
+                  'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                  newFramework.is_global ? 'translate-x-5' : 'translate-x-0.5'
+                )} />
+              </button>
+              <div>
+                <p className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" />
+                  Framework Global (Padrão da Agência)
+                </p>
+                <p className="text-xs text-slate-500">Fica disponível para todos os clientes automaticamente</p>
+              </div>
             </div>
 
             <div>
@@ -526,40 +604,164 @@ export function FrameworkManager() {
         </DialogContent>
       </Dialog>
 
-      {/* View Framework Dialog */}
-      <Dialog open={!!selectedFramework} onOpenChange={() => setSelectedFramework(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      {/* View / Edit Framework Dialog */}
+      <Dialog open={!!selectedFramework} onOpenChange={() => { setSelectedFramework(null); setIsEditing(false); }}>
+        <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[90vh] overflow-y-auto">
           {selectedFramework && (
             <>
-              <DialogHeader>
-                <div className="flex items-center gap-3">
+              <DialogHeader className="mb-4">
+                <div className="flex flex-col md:flex-row md:items-start gap-4">
                   <div className={cn(
-                    'w-10 h-10 rounded-lg flex items-center justify-center',
-                    (FRAMEWORK_TYPES[selectedFramework.type] || FRAMEWORK_TYPES.general).color
+                    'w-12 h-12 shrink-0 rounded-xl flex items-center justify-center mt-0.5',
+                    (FRAMEWORK_TYPES[isEditing ? (editData.type || selectedFramework.type) : selectedFramework.type] || FRAMEWORK_TYPES.general).color
                   )}>
                     {(() => {
-                      const Icon = (FRAMEWORK_TYPES[selectedFramework.type] || FRAMEWORK_TYPES.general).icon;
-                      return <Icon className="w-5 h-5" />;
+                      const Icon = (FRAMEWORK_TYPES[isEditing ? (editData.type || selectedFramework.type) : selectedFramework.type] || FRAMEWORK_TYPES.general).icon;
+                      return <Icon className="w-6 h-6" />;
                     })()}
                   </div>
-                  <div>
-                    <DialogTitle>{selectedFramework.name}</DialogTitle>
-                    <p className="text-sm text-slate-500">{selectedFramework.description}</p>
+                  
+                  <div className="flex-1 min-w-0 pr-4 text-left">
+                    <DialogTitle className="text-xl md:text-2xl font-bold text-foreground leading-tight mb-2 break-words">
+                      {isEditing ? 'Editar Framework' : selectedFramework.name}
+                    </DialogTitle>
+                    {!isEditing && (
+                      <p className="text-sm text-slate-500 leading-relaxed max-w-2xl">
+                        {selectedFramework.description}
+                      </p>
+                    )}
                   </div>
-                  {selectedFramework.is_global && (
-                    <Badge variant="outline" className="text-amber-600 border-amber-300 ml-auto">
-                      <Lock className="w-3 h-3 mr-1" />
-                      Padrão da Agência
-                    </Badge>
-                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 md:justify-end mt-2 md:mt-0">
+                    {selectedFramework.is_global && !isEditing && (
+                      <Badge variant="outline" className="text-amber-600 border-amber-300 h-8 font-medium">
+                        <Lock className="w-3 h-3 mr-1.5" />
+                        Padrão da Agência
+                      </Badge>
+                    )}
+                    {!isEditing && !selectedFramework.is_global && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shadow-sm"
+                        onClick={() => {
+                          setEditData({ name: selectedFramework.name, type: selectedFramework.type, description: selectedFramework.description, content: selectedFramework.content, is_global: selectedFramework.is_global });
+                          setIsEditing(true);
+                        }}
+                      >
+                        <Edit3 className="w-3.5 h-3.5 mr-1.5" />
+                        Editar
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </DialogHeader>
 
-              <div className="mt-4">
-                <div className="bg-slate-50 rounded-lg p-4 whitespace-pre-wrap font-mono text-sm">
-                  {selectedFramework.content}
+              {isEditing ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <Label>Nome do Framework</Label>
+                    <Input
+                      value={editData.name || ''}
+                      onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Categoria</Label>
+                    <div className="grid grid-cols-5 gap-2 mt-1">
+                      {Object.entries(FRAMEWORK_TYPES).map(([key, config]) => {
+                        const TypeIcon = config.icon;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => setEditData({ ...editData, type: key as any })}
+                            className={cn(
+                              'flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-xs',
+                              editData.type === key
+                                ? 'border-violet-500 bg-violet-50'
+                                : 'border-slate-200 hover:border-slate-300'
+                            )}
+                          >
+                            <TypeIcon className="w-4 h-4" />
+                            {config.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Descrição</Label>
+                    <Input
+                      value={editData.description || ''}
+                      onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Toggle Global */}
+                  <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50">
+                    <button
+                      type="button"
+                      onClick={() => setEditData({ ...editData, is_global: !editData.is_global })}
+                      className={cn(
+                        'relative w-11 h-6 rounded-full transition-colors',
+                        editData.is_global ? 'bg-amber-500' : 'bg-slate-300'
+                      )}
+                    >
+                      <div className={cn(
+                        'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                        editData.is_global ? 'translate-x-5' : 'translate-x-0.5'
+                      )} />
+                    </button>
+                    <div>
+                      <p className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5" />
+                        Framework Global (Padrão da Agência)
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Conteúdo do Framework</Label>
+                    <Textarea
+                      value={editData.content || ''}
+                      onChange={(e) => setEditData({ ...editData, content: e.target.value })}
+                      rows={15}
+                      className="font-mono text-sm"
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setIsEditing(false)}
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Cancelar
+                    </Button>
+                    <Button
+                      className="flex-1 bg-violet-600 hover:bg-violet-700"
+                      onClick={handleUpdateFramework}
+                      disabled={!editData.name || !editData.content || isSaving}
+                    >
+                      {isSaving ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      Salvar Alterações
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-4">
+                  <div className="bg-slate-50 rounded-lg p-4 whitespace-pre-wrap font-mono text-sm">
+                    {selectedFramework.content}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </DialogContent>

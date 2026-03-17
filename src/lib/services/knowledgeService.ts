@@ -141,7 +141,7 @@ export async function ingestDocument(
   tenantId: string,
   title: string,
   content: string,
-  sourceType: 'text' | 'pdf' | 'url' | 'briefing' = 'text',
+  sourceType: 'text' | 'pdf' | 'url' | 'briefing' | 'generated' = 'text',
   metadata: Record<string, any> = {}
 ): Promise<string> {
   if (!content || content.trim().length < 10) {
@@ -418,6 +418,17 @@ export async function ingestBriefing(tenantId: string, briefing: any): Promise<s
     sections.push(`PALAVRAS A EVITAR: ${briefing.words_to_avoid.join(', ')}`);
   }
 
+  // Identidade Visual
+  const visualParts: string[] = [];
+  if (briefing.brand_primary_color) visualParts.push(`Cor Primária: ${briefing.brand_primary_color}`);
+  if (briefing.brand_secondary_color) visualParts.push(`Cor Secundária: ${briefing.brand_secondary_color}`);
+  if (briefing.brand_accent_color) visualParts.push(`Cor de Acento: ${briefing.brand_accent_color}`);
+  if (briefing.brand_logo_url) visualParts.push(`Logo: ${briefing.brand_logo_url}`);
+  if (briefing.brand_font) visualParts.push(`Fonte: ${briefing.brand_font}`);
+  if (visualParts.length > 0) {
+    sections.push(`IDENTIDADE VISUAL DA MARCA:\n${visualParts.join('\n')}`);
+  }
+
   const fullContent = sections.join('\n\n');
 
   if (fullContent.length < 20) return null; // Briefing muito vazio
@@ -433,6 +444,72 @@ export async function ingestBriefing(tenantId: string, briefing: any): Promise<s
     return docId;
   } catch (err: any) {
     console.error('Erro ao ingerir briefing:', err.message);
+    return null;
+  }
+}
+
+// =============================================
+// Generated Content → Knowledge Base (auto-ingestão)
+// =============================================
+
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+  page: 'Página de Vendas',
+  email_sequence: 'Sequência de Emails',
+  whatsapp: 'Scripts WhatsApp',
+};
+
+/**
+ * Ingere conteúdo gerado pela IA (copys, emails, scripts) no Dossiê IA.
+ * Usa sourceType 'generated' com deduplicação por content_type.
+ */
+export async function ingestGeneratedContent(
+  tenantId: string,
+  contentType: string,
+  content: string,
+  expertName?: string
+): Promise<string | null> {
+  if (!content || content.trim().length < 20) return null;
+
+  const label = CONTENT_TYPE_LABELS[contentType] || contentType;
+  const title = `[IA] ${label} — ${expertName || 'Expert'}`;
+
+  try {
+    // Check for existing generated content of this type
+    const { data: existing } = await (supabase.from('expert_documents') as any)
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('source_type', 'generated')
+      .ilike('title', `%${label}%`)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      // Update existing
+      const docId = existing[0].id;
+      await (supabase.from('expert_chunks') as any).delete().eq('document_id', docId);
+      await (supabase.from('expert_documents') as any)
+        .update({
+          title,
+          content,
+          metadata: { source: 'ai-generated', content_type: contentType },
+          status: 'processing',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', docId);
+      await processChunks(docId, tenantId, content);
+      return docId;
+    }
+
+    // Create new
+    const docId = await ingestDocument(
+      tenantId,
+      title,
+      content,
+      'generated',
+      { source: 'ai-generated', content_type: contentType }
+    );
+    return docId;
+  } catch (err: any) {
+    console.error(`Erro ao ingerir conteúdo gerado (${contentType}):`, err.message);
     return null;
   }
 }

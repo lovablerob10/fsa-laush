@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { briefingService } from '@/lib/services/briefingService';
+import { briefingService, callGeminiWithFallback } from '@/lib/services/briefingService';
 import { supabase } from '@/lib/supabase/client';
 import { useAuthStore } from '@/store';
 import { NotionPagePicker } from '@/components/integrations/NotionPagePicker';
@@ -85,22 +85,8 @@ const ACTION_TYPE_CONFIG: Record<string, {
     },
 };
 
-// ── Gemini helper ───────────────────────────────────────────────────────────
-async function callGemini(prompt: string): Promise<string> {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY não configurada');
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        }
-    );
-    if (!response.ok) throw new Error(`Gemini error: ${response.status}`);
-    const json = await response.json();
-    return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-}
+// ── Gemini helper (usa callGeminiWithFallback importado com waterfall Pro → Flash → 1.5-Flash) ──
+const callGemini = (prompt: string) => callGeminiWithFallback(prompt);
 
 // ── Build content prompt ────────────────────────────────────────────────────
 function buildPrompt(action: Action, briefing: any): string {
@@ -375,13 +361,15 @@ export function ActionAIPanel({ action, onClose }: Props) {
         }
     }, [activeTenant?.id, action.id, action.title, action.description, blocks]);
 
-    // ── Content generation (enriched with OPRF Knowledge Base) ──
+    // ── Content generation (enriched with OPRF Knowledge Base + Frameworks) ──
     async function generateContent() {
         setGenerating(true);
         setContentError('');
         setBlocks([]);
         try {
             let knowledgeContext = '';
+            let frameworkContext = '';
+
             // OPRF: Enrich prompt with knowledge base context if available
             try {
                 if (activeTenant?.id) {
@@ -391,9 +379,26 @@ export function ActionAIPanel({ action, onClose }: Props) {
                 }
             } catch { /* Knowledge base not available yet — proceed without */ }
 
+            // Frameworks: resolve tipo específico + contextuais (general)
+            try {
+                if (activeTenant?.id) {
+                    const { resolveAllFrameworks, buildFrameworkInstruction } = await import('@/lib/services/frameworkService');
+                    const resolved = await resolveAllFrameworks(activeTenant.id, action.type);
+                    if (resolved.all.length > 0) {
+                        frameworkContext = buildFrameworkInstruction(resolved.all);
+                        console.log(`[ActionAI+Framework] ${resolved.all.length} frameworks para ${action.type}:`, resolved.all.map(f => f.name));
+                    }
+                }
+            } catch { /* Frameworks not available — proceed without */ }
+
             const basePrompt = buildPrompt(action, briefing);
-            const prompt = knowledgeContext
-                ? `CONTEXTO PROFUNDO DO EXPERT (base de conhecimento — use como referência):\n${knowledgeContext}\n\n---\n\n${basePrompt}`
+            const enrichments = [
+                knowledgeContext && `CONTEXTO PROFUNDO DO EXPERT (base de conhecimento — use como referência):\n${knowledgeContext}`,
+                frameworkContext && `FRAMEWORKS DA AGÊNCIA (use como referência para técnicas, tom e estratégia):\n${frameworkContext}`,
+            ].filter(Boolean);
+
+            const prompt = enrichments.length > 0
+                ? `${enrichments.join('\n\n---\n\n')}\n\n---\n\n${basePrompt}`
                 : basePrompt;
             const raw = await callGemini(prompt);
             const parsed = parseGeneratedBlocks(raw);
