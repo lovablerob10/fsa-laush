@@ -345,8 +345,8 @@ export function ExpertBriefing() {
         </div>
 
         {/* Step tabs */}
-        <div className="px-6 pb-3 max-w-5xl mx-auto">
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-violet-500/20 scrollbar-track-transparent">
+        <div className="px-6 pb-4 max-w-5xl mx-auto">
+          <div className="flex flex-wrap gap-2 pb-2 justify-start items-center">
             {STEPS.map(s => {
               const Icon = s.icon;
               return (
