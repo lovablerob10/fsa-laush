@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Save, Sparkles, Loader2, ChevronRight, ChevronLeft, Check, Plus, X,
   User, Package, Target, Lightbulb, Palette, Wand2, Calendar, ArrowRight,
-  ExternalLink, Upload, Camera
+  ExternalLink, Upload, Camera, BookOpen, FileText, Trash2
 } from 'lucide-react';
 
 import { useAuthStore, useUIStore } from '@/store';
@@ -18,6 +18,7 @@ const STEPS = [
   { id: 4, title: 'Promessa Central', icon: Lightbulb, desc: 'Por que comprar' },
   { id: 5, title: 'Identidade de Marca', icon: Palette, desc: 'Como comunicar' },
   { id: 6, title: 'Gerar Conteúdo IA', icon: Sparkles, desc: 'IA cria o material' },
+  { id: 7, title: 'Base de Conhecimento', icon: BookOpen, desc: 'Cérebro do expert' },
 ];
 
 function TagInput({ label, values, onChange, placeholder, onGenerateAI, isGenerating }: {
@@ -109,6 +110,12 @@ export function ExpertBriefing() {
   const [notionPicker, setNotionPicker] = useState<{ type: string; title: string; content: string } | null>(null);
   // Multi-photo upload: up to 10 expert photos stored as { dataUrl, name }[]
   const [expertPhotos, setExpertPhotos] = useState<Array<{ dataUrl: string; name: string }>>([]);
+  // Knowledge Base state
+  const [kbDocuments, setKbDocuments] = useState<any[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
+  const [kbIngesting, setKbIngesting] = useState(false);
+  const [kbNewText, setKbNewText] = useState('');
+  const [kbNewTitle, setKbNewTitle] = useState('');
 
   function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
@@ -169,6 +176,13 @@ export function ExpertBriefing() {
       const saved = await briefingService.save(toSave);
       if (saved) setData(saved);
       setSaveMsg(approve ? '✅ Briefing aprovado!' : '✅ Salvo!');
+
+      // OPRF: Auto-ingestão na Knowledge Base (fire-and-forget)
+      import('@/lib/services/knowledgeService').then(({ ingestBriefing }) => {
+        ingestBriefing(tenantId, toSave).then(docId => {
+          if (docId) console.log('[OPRF] Briefing ingerido na Knowledge Base:', docId);
+        }).catch(err => console.warn('[OPRF] Erro ao ingerir briefing:', err.message));
+      });
     } catch (err: any) { setSaveMsg(`❌ ${err.message}`); }
     finally { setSaving(false); setTimeout(() => setSaveMsg(''), 3000); }
   }
@@ -602,6 +616,169 @@ export function ExpertBriefing() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {step === 7 && (
+          <div className="space-y-6">
+            <div className="glass-card p-6">
+              <div className="border-b border-border/60 pb-4 mb-4">
+                <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-violet-400" /> Base de Conhecimento — Método OPRF
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Alimente o cérebro do expert com documentos, textos e materiais. Tudo será indexado para enriquecer copys, criativos e respostas da IA.
+                </p>
+              </div>
+
+              {/* Auto-ingest briefing info */}
+              <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-4 mb-5">
+                <div className="flex items-center gap-2 text-sm text-violet-300 font-medium mb-1">
+                  <Sparkles className="w-4 h-4" /> Ingestão Automática
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  O briefing ({data.expert_name || 'Expert'} — {data.product_name || 'Produto'}) é indexado automaticamente ao salvar. Aqui você pode adicionar materiais extras como PDFs, artigos, e anotações.
+                </p>
+              </div>
+
+              {/* Add new document */}
+              <div className="space-y-3 mb-6">
+                <div>
+                  <label className="input-label text-sm font-medium text-foreground">Título do Documento</label>
+                  <input
+                    type="text"
+                    value={kbNewTitle}
+                    onChange={e => setKbNewTitle(e.target.value)}
+                    placeholder="Ex: Artigo sobre método do expert"
+                    className="input-field w-full mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="input-label text-sm font-medium text-foreground">Conteúdo (cole o texto)</label>
+                  <textarea
+                    value={kbNewText}
+                    onChange={e => setKbNewText(e.target.value)}
+                    placeholder="Cole aqui o conteúdo de artigos, transcrições, metodologias, depoimentos..."
+                    rows={6}
+                    className="input-field w-full mt-1 resize-y"
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!kbNewText.trim() || !tenantId) return;
+                    setKbIngesting(true);
+                    try {
+                      const { ingestDocument } = await import('@/lib/services/knowledgeService');
+                      await ingestDocument(tenantId, kbNewTitle || 'Documento sem título', kbNewText.trim(), 'text');
+                      setKbNewText('');
+                      setKbNewTitle('');
+                      // Refresh list
+                      const { listDocuments } = await import('@/lib/services/knowledgeService');
+                      const docs = await listDocuments(tenantId);
+                      setKbDocuments(docs);
+                    } catch (err: any) {
+                      alert('Erro ao ingerir: ' + err.message);
+                    } finally {
+                      setKbIngesting(false);
+                    }
+                  }}
+                  disabled={!kbNewText.trim() || kbIngesting}
+                  className={cn('btn-premium flex items-center gap-2 text-sm w-full justify-center', (!kbNewText.trim() || kbIngesting) && 'opacity-40 cursor-not-allowed')}
+                >
+                  {kbIngesting
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Processando embeddings...</>
+                    : <><Upload className="w-4 h-4" /> Ingerir na Base de Conhecimento</>
+                  }
+                </button>
+              </div>
+
+              {/* Documents list */}
+              <div className="border-t border-border/40 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-foreground">Documentos Indexados</h3>
+                  <button
+                    onClick={async () => {
+                      if (!tenantId) return;
+                      setKbLoading(true);
+                      try {
+                        const { listDocuments } = await import('@/lib/services/knowledgeService');
+                        const docs = await listDocuments(tenantId);
+                        setKbDocuments(docs);
+                      } catch { /* ignore */ }
+                      finally { setKbLoading(false); }
+                    }}
+                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                  >
+                    {kbLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : '🔄 Atualizar'}
+                  </button>
+                </div>
+
+                {kbDocuments.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p>Nenhum documento indexado ainda.</p>
+                    <p className="text-xs mt-1">Salve o briefing ou adicione documentos acima.</p>
+                    <button
+                      onClick={async () => {
+                        if (!tenantId) return;
+                        setKbLoading(true);
+                        try {
+                          const { listDocuments } = await import('@/lib/services/knowledgeService');
+                          const docs = await listDocuments(tenantId);
+                          setKbDocuments(docs);
+                        } catch { /* ignore */ }
+                        finally { setKbLoading(false); }
+                      }}
+                      className="mt-3 text-xs text-violet-400 hover:text-violet-300 underline"
+                    >
+                      Carregar documentos existentes
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {kbDocuments.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center gap-3 bg-secondary/30 rounded-xl p-3 border border-border/30">
+                        <FileText className="w-5 h-5 text-violet-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{doc.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[11px] text-muted-foreground">{doc.char_count?.toLocaleString()} chars</span>
+                            <span className="text-[11px] text-muted-foreground">•</span>
+                            <span className="text-[11px] text-muted-foreground">{doc.chunk_count} chunks</span>
+                            <span className="text-[11px] text-muted-foreground">•</span>
+                            <span className={cn(
+                              'text-[11px] px-1.5 py-0.5 rounded-full font-medium',
+                              doc.status === 'ready' ? 'bg-emerald-500/15 text-emerald-400' :
+                              doc.status === 'processing' ? 'bg-yellow-500/15 text-yellow-400' :
+                              doc.status === 'error' ? 'bg-red-500/15 text-red-400' :
+                              'bg-gray-500/15 text-gray-400'
+                            )}>
+                              {doc.status === 'ready' ? '✅ Indexado' : doc.status === 'processing' ? '⏳ Processando' : doc.status === 'error' ? '❌ Erro' : '⏸ Pendente'}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Deletar este documento da base de conhecimento?')) return;
+                            try {
+                              const { deleteDocument } = await import('@/lib/services/knowledgeService');
+                              await deleteDocument(doc.id);
+                              setKbDocuments(prev => prev.filter(d => d.id !== doc.id));
+                            } catch (err: any) {
+                              alert('Erro: ' + err.message);
+                            }
+                          }}
+                          className="text-muted-foreground hover:text-red-400 transition-colors"
+                          title="Remover documento"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

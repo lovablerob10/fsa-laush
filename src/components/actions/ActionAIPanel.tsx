@@ -375,13 +375,26 @@ export function ActionAIPanel({ action, onClose }: Props) {
         }
     }, [activeTenant?.id, action.id, action.title, action.description, blocks]);
 
-    // ── Content generation ──
+    // ── Content generation (enriched with OPRF Knowledge Base) ──
     async function generateContent() {
         setGenerating(true);
         setContentError('');
         setBlocks([]);
         try {
-            const prompt = buildPrompt(action, briefing);
+            let knowledgeContext = '';
+            // OPRF: Enrich prompt with knowledge base context if available
+            try {
+                if (activeTenant?.id) {
+                    const { getKnowledgeContext } = await import('@/lib/services/knowledgeService');
+                    const queryText = `${action.title} ${action.description || ''} ${briefing?.product_name || ''}`;
+                    knowledgeContext = await getKnowledgeContext(activeTenant.id, queryText, 5);
+                }
+            } catch { /* Knowledge base not available yet — proceed without */ }
+
+            const basePrompt = buildPrompt(action, briefing);
+            const prompt = knowledgeContext
+                ? `CONTEXTO PROFUNDO DO EXPERT (base de conhecimento — use como referência):\n${knowledgeContext}\n\n---\n\n${basePrompt}`
+                : basePrompt;
             const raw = await callGemini(prompt);
             const parsed = parseGeneratedBlocks(raw);
             setBlocks(parsed);
