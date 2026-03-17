@@ -34,7 +34,7 @@ export function LaunchSwitcher() {
         if (!activeTenant?.id) return;
         setLoading(true);
         (supabase.from('launches') as any)
-            .select('id, name, product_name, launch_type, launch_date, status')
+            .select('id, name, product_name, launch_type, start_date, status')
             .eq('tenant_id', activeTenant.id)
             .order('created_at', { ascending: false })
             .then(({ data }: any) => {
@@ -64,7 +64,7 @@ export function LaunchSwitcher() {
                     name: newName.trim(),
                     product_name: newProduct.trim() || newName.trim(),
                     launch_type: newType,
-                    launch_date: newDate || null,
+                    start_date: newDate || null,
                     status: 'planning',
                 })
                 .select()

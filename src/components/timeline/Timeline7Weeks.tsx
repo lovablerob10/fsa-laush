@@ -183,24 +183,62 @@ export function Timeline7Weeks() {
         const dbPhases = (launch.launch_phases || []) as any[];
 
         if (dbPhases.length > 0) {
-          // Use real DB data
-          const phasesWithTasks: Phase[] = PHASES_CONFIG.map(cfg => {
-            const dbPhase = dbPhases.find((p: any) => p.phase_type === cfg.id) || dbPhases.find((p: any) => p.week_start >= cfg.week_start && p.week_start <= cfg.week_end);
+          // Use real DB data — match by phase_type first, then by week_number
+          const tenantId = (activeTenant as any)?.id || (tenant as any)?.id;
+          const phasesWithTasks: Phase[] = await Promise.all(PHASES_CONFIG.map(async (cfg, idx) => {
+            // Try matching: (1) phase_type, (2) week_number, (3) index order
+            const dbPhase = dbPhases.find((p: any) => p.phase_type === cfg.id)
+              || dbPhases.find((p: any) => p.week_number === cfg.week_start)
+              || dbPhases[idx];
             const currentWk = launch.current_week || 1;
             const status = dbPhase
               ? (currentWk > cfg.week_end ? 'completed' : currentWk >= cfg.week_start ? 'in_progress' : 'pending') as Phase['status']
               : 'pending' as Phase['status'];
-            const tasks: Task[] = (dbPhase?.tasks || []).map((t: any) => ({
+
+            let tasks: Task[] = (dbPhase?.tasks || []).map((t: any) => ({
               id: t.id,
               name: t.name,
-              description: t.description,
+              description: t.description || '',
               status: t.status || 'pending',
               priority: t.priority || 'medium',
               assignee: t.assignee,
               due_date: t.due_date,
             }));
+
+            // If phase exists in DB but has no tasks, seed with defaults
+            if (dbPhase && tasks.length === 0 && MOCK_TASKS[cfg.id]) {
+              const mockTasks = MOCK_TASKS[cfg.id];
+              for (const mt of mockTasks) {
+                try {
+                  const { data: inserted } = await (supabase.from('tasks') as any)
+                    .insert({
+                      phase_id: dbPhase.id,
+                      tenant_id: tenantId,
+                      name: mt.name,
+                      description: mt.description,
+                      priority: mt.priority,
+                      status: 'pending',
+                    })
+                    .select()
+                    .single();
+                  if (inserted) {
+                    tasks.push({
+                      id: inserted.id,
+                      name: inserted.name,
+                      description: inserted.description || '',
+                      status: inserted.status || 'pending',
+                      priority: inserted.priority || 'medium',
+                      due_date: inserted.due_date,
+                    });
+                  }
+                } catch (err) {
+                  console.error('Erro ao semear tarefa:', err);
+                }
+              }
+            }
+
             return { ...cfg, status, tasks, description: dbPhase?.name || cfg.description };
-          });
+          }));
           setPhases(phasesWithTasks);
           setHasData(true);
         } else {

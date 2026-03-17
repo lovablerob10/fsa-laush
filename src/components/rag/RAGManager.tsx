@@ -25,12 +25,13 @@ import { supabase } from '@/lib/supabase/client';
 interface DocumentRow {
   id: string;
   tenant_id: string;
-  name: string;
-  type: string;
+  title: string;
+  source_type: string;
   content: string | null;
+  status: string;
+  chunk_count: number;
   metadata: Record<string, any> | null;
   created_at: string;
-  updated_at: string;
 }
 
 interface AIResponse {
@@ -94,21 +95,16 @@ export function RAGManager() {
   // Error state
   const [error, setError] = useState<string | null>(null);
 
-  // ---- Load documents from Supabase ----
+  // ---- Load documents from Supabase (expert_documents — unified with Briefing) ----
   const loadDocuments = useCallback(async () => {
     if (!currentTenant?.id) return;
     setIsLoading(true);
     // Clear documents immediately when switching tenants
     setDocuments([]);
     try {
-      const { data, error: err } = await supabase
-        .from('documents')
-        .select('*')
-        .eq('tenant_id', currentTenant.id)
-        .order('created_at', { ascending: false });
-
-      if (err) throw err;
-      setDocuments(data || []);
+      const { listDocuments } = await import('@/lib/services/knowledgeService');
+      const docs = await listDocuments(currentTenant.id);
+      setDocuments(docs || []);
     } catch (err: any) {
       console.error('Erro ao carregar documentos:', err);
       setError(err.message);
@@ -126,13 +122,13 @@ export function RAGManager() {
     if (documents.length === 0) return '';
     return documents
       .map(doc => {
-        const content = doc.content?.substring(0, 3000) || '';
-        return `📄 ${doc.name}:\n${content}`;
+        const content = (doc as any).content?.substring(0, 3000) || '';
+        return `📄 ${doc.title}:\n${content}`;
       })
       .join('\n\n---\n\n');
   }, [documents]);
 
-  // ---- Upload file ----
+  // ---- Upload file (uses knowledgeService → expert_documents, unified with Briefing) ----
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !currentTenant?.id) return;
@@ -145,42 +141,20 @@ export function RAGManager() {
     try {
       // Read file content as text
       const rawText = await file.text();
-      // Sanitize: remove control characters (except \n \t \r) that break JSON serialization
       const text = rawText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ');
       setUploadProgress(40);
 
-      // Get auth token
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Sessão expirada');
+      const fileType = file.name.split('.').pop()?.toLowerCase() || 'txt';
+      const sourceType = fileType === 'pdf' ? 'pdf' : 'text';
 
       setUploadProgress(60);
 
-      // Call Edge Function to process & save
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-document`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            tenantId: currentTenant.id,
-            fileName: file.name,
-            fileType: file.name.split('.').pop()?.toLowerCase() || 'txt',
-            fileContent: text,
-          }),
-        }
-      );
-
-      setUploadProgress(85);
-
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
+      // Use knowledgeService (same tables as Briefing Step 7)
+      const { ingestDocument } = await import('@/lib/services/knowledgeService');
+      await ingestDocument(currentTenant.id, file.name, text, sourceType as any, { originalFileName: file.name, fileType });
 
       setUploadProgress(100);
-      setUploadSuccess(`"${file.name}" processado com ${data.chunksCreated} chunks para RAG`);
+      setUploadSuccess(`"${file.name}" processado e indexado no Dossiê IA`);
 
       // Reload documents
       await loadDocuments();
@@ -196,15 +170,12 @@ export function RAGManager() {
     }
   };
 
-  // ---- Delete document ----
+  // ---- Delete document (from expert_documents) ----
   const handleDeleteDocument = async (docId: string) => {
     if (!confirm('Excluir este documento e todos os chunks?')) return;
     try {
-      // Delete chunks first
-      await supabase.from('document_chunks').delete().eq('document_id', docId);
-      // Delete document
-      const { error: err } = await supabase.from('documents').delete().eq('id', docId);
-      if (err) throw err;
+      const { deleteDocument } = await import('@/lib/services/knowledgeService');
+      await deleteDocument(docId);
       setDocuments(prev => prev.filter(d => d.id !== docId));
     } catch (err: any) {
       setError(err.message);
@@ -233,7 +204,7 @@ ${query}
 Responda de forma completa e detalhada, baseando-se EXCLUSIVAMENTE nos documentos acima. Se a informação não estiver nos documentos, diga claramente.`;
 
       const answer = await callGemini(prompt, 0.5);
-      const sources = documents.map(d => d.name);
+      const sources = documents.map(d => d.title);
 
       setSearchResult({
         content: answer,
@@ -348,13 +319,16 @@ Regras:
   };
 
   // ---- File icon ----
-  const getFileIcon = (type: string) => {
-    switch (type) {
+  const getFileIcon = (sourceType: string) => {
+    switch (sourceType) {
       case 'pdf':
         return <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center"><span className="text-red-600 font-bold text-xs">PDF</span></div>;
-      case 'doc':
-      case 'docx':
-        return <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><span className="text-blue-600 font-bold text-xs">DOC</span></div>;
+      case 'briefing':
+        return <div className="w-10 h-10 bg-violet-100 rounded-lg flex items-center justify-center"><span className="text-violet-600 font-bold text-xs">BRF</span></div>;
+      case 'generated':
+        return <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center"><span className="text-amber-600 font-bold text-xs">IA</span></div>;
+      case 'url':
+        return <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center"><span className="text-blue-600 font-bold text-xs">URL</span></div>;
       default:
         return <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><FileText className="w-5 h-5 text-slate-600" /></div>;
     }
@@ -456,15 +430,20 @@ Regras:
                 <Card key={doc.id} className="hover:shadow-lg transition-shadow">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      {getFileIcon(doc.type)}
+                      {getFileIcon(doc.source_type)}
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-slate-900 truncate">{doc.name}</h3>
+                        <h3 className="font-medium text-slate-900 truncate">{doc.title}</h3>
                         <div className="flex items-center gap-2 mt-1 text-sm text-slate-500">
-                          <span className="uppercase">{doc.type}</span>
+                          <span className="uppercase">{doc.source_type}</span>
+                          {doc.status && (
+                            <Badge variant={doc.status === 'ready' ? 'default' : 'secondary'} className="text-[10px]">
+                              {doc.status === 'ready' ? '✅ Pronto' : doc.status}
+                            </Badge>
+                          )}
                         </div>
-                        {doc.metadata?.word_count && (
+                        {doc.chunk_count > 0 && (
                           <p className="text-xs text-slate-400 mt-1">
-                            {doc.metadata.word_count.toLocaleString()} palavras
+                            {doc.chunk_count} fragmentos indexados
                           </p>
                         )}
                       </div>

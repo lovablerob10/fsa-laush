@@ -250,6 +250,31 @@ export function ExpertBriefing() {
     briefingService.fetchByTenant(tenantId).then(b => { if (b) setData(b); });
   }, [tenantId]);
 
+  // Auto-load KB documents when entering Step 7
+  useEffect(() => {
+    if (step !== 7 || !tenantId) return;
+    (async () => {
+      setKbLoading(true);
+      try {
+        const { listDocuments, ingestBriefing } = await import('@/lib/services/knowledgeService');
+        const docs = await listDocuments(tenantId);
+        setKbDocuments(docs);
+
+        // If briefing exists but not yet in expert_documents, auto-ingest now
+        const hasBriefingDoc = docs.some((d: any) => d.source_type === 'briefing');
+        if (!hasBriefingDoc && data.expert_name) {
+          await ingestBriefing(tenantId, data);
+          const refreshed = await listDocuments(tenantId);
+          setKbDocuments(refreshed);
+        }
+      } catch (err) {
+        console.error('[Dossiê] Erro ao carregar docs:', err);
+      } finally {
+        setKbLoading(false);
+      }
+    })();
+  }, [step, tenantId]);
+
   const set = useCallback((field: keyof BriefingData, value: any) => {
     setData(d => ({ ...d, [field]: value }));
   }, []);
