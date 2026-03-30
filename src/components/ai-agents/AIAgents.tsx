@@ -1,16 +1,15 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
     Bot, Loader2, Copy, Check, X, Send, Clock, Zap, ChevronRight,
-    Mail, Film, Pen, Search, Palette, Eye, Pencil, Trash2, ArrowLeft, Database, ExternalLink,
+    Mail, Film, Pen, Search, Palette, Eye, Pencil, Trash2, ArrowLeft,
     LayoutTemplate, Image, FileText, Link as LinkIcon, Download
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase/client';
 import { NotionPagePicker } from '@/components/integrations/NotionPagePicker';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store';
 import { briefingService, BriefingData } from '@/lib/services/briefingService';
 import {
-    AI_AGENTS, AIAgent, AgentExecution, runAgent, generateImage,
+    AI_AGENTS, AIAgent, runAgent, generateImage,
     AgentExecutionDB, saveExecution, fetchExecutions,
     updateExecutionTitle, deleteExecution, fetchDossieContext,
     scrapeUrl, formatScrapedContent
@@ -124,7 +123,29 @@ export function AIAgents() {
 
     const handleGenerateImage = async () => {
         if (!selectedAgent || isGeneratingImage) return;
-        const prompt = userInput || 'Professional marketing banner for a digital product launch, modern gradient design, vibrant colors, premium feel';
+
+        // Build brand-aware prompt using briefing palette
+        const b = briefing;
+        const brandColors = [
+            b?.brand_primary_color,
+            b?.brand_secondary_color,
+            b?.brand_accent_color,
+        ].filter((v): v is string => !!v && typeof v === 'string' && v.trim().length > 0);
+
+        const brandInstructions = brandColors.length >= 2
+            ? `MANDATORY BRAND COLORS: Primary=${brandColors[0]}, Secondary=${brandColors[1]}${brandColors[2] ? ', Accent=' + brandColors[2] : ''}. These MUST be the dominant colors in the image.${b?.brand_font ? ' BRAND FONT: ' + b.brand_font + '.' : ''}`
+            : brandColors.length === 1
+            ? `BRAND PRIMARY COLOR: ${brandColors[0]}. Use as main accent color.${b?.brand_font ? ' BRAND FONT: ' + b.brand_font + '.' : ''}`
+            : '';
+
+        const expertCtx = b?.expert_name ? `Expert: ${b.expert_name}.` : '';
+        const productCtx = b?.product_name ? `Product: ${b.product_name}.` : '';
+        const basePrompt = userInput || 'Professional marketing banner for a digital product launch, modern gradient design, premium feel';
+
+        const prompt = [basePrompt, brandInstructions, expertCtx, productCtx]
+            .filter(Boolean)
+            .join(' ');
+
         setIsGeneratingImage(true);
         setGeneratedImage(null);
 
@@ -151,8 +172,6 @@ export function AIAgents() {
         }
     };
 
-    const [exportingNotion, setExportingNotion] = useState(false);
-    const [notionExportDone, setNotionExportDone] = useState(false);
     const [notionPicker, setNotionPicker] = useState<{ title: string; content: string } | null>(null);
 
     const handleCopy = () => {
@@ -164,10 +183,6 @@ export function AIAgents() {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }
-    };
-
-    const handleExportNotion = (text: string, titleStr: string) => {
-        setNotionPicker({ title: titleStr, content: text });
     };
 
     const handleDownloadHtml = (htmlContent: string, title: string) => {

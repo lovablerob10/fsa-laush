@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Save, Sparkles, Loader2, ChevronRight, ChevronLeft, Check, Plus, X,
   User, Package, Target, Lightbulb, Palette, Wand2, Calendar, ArrowRight,
@@ -24,8 +24,11 @@ function renderMarkdown(text: string): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
     // Italic: *text*
     .replace(/(?<![*])\*(?![*])(.+?)(?<![*])\*(?![*])/g, '<em>$1</em>')
-    // Links: [text](url)
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-violet-400 hover:text-violet-300 underline">$1</a>')
+    // Links: [text](url) — only allow http/https to prevent javascript: injection
+    .replace(/\[(.+?)\]\((.+?)\)/g, (_, text, url) => {
+      const safeUrl = /^https?:\/\//i.test(url) ? url : '#';
+      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="text-violet-400 hover:text-violet-300 underline">${text}</a>`;
+    })
     // Horizontal rule: ---
     .replace(/^-{3,}$/gm, '<hr class="border-border/30 my-3" />')
     // Bullet lists: * item or - item
@@ -145,7 +148,7 @@ export function ExpertBriefing() {
   const [exportingNotion, setExportingNotion] = useState<string | null>(null);
   const [notionPicker, setNotionPicker] = useState<{ type: string; title: string; content: string } | null>(null);
   // Multi-photo upload: up to 10 expert photos stored as { dataUrl, name }[]
-  const [expertPhotos, setExpertPhotos] = useState<Array<{ dataUrl: string; name: string; aspectRatio: string; usageType: string; isPrimary: boolean }>>([]);
+  const [expertPhotos, setExpertPhotos] = useState<Array<{ dataUrl: string; name: string; aspectRatio: string; usageType: string; isPrimary: boolean; width?: number; height?: number }>>([]);
   // Knowledge Base state
   const [kbDocuments, setKbDocuments] = useState<any[]>([]);
   const [kbLoading, setKbLoading] = useState(false);
@@ -198,12 +201,30 @@ export function ExpertBriefing() {
       const reader = new FileReader();
       reader.onload = ev => {
         const dataUrl = ev.target?.result as string;
-        setExpertPhotos(prev => {
-          const isFirst = prev.length === 0;
-          const updated = [...prev, { dataUrl, name: file.name, aspectRatio: '1:1', usageType: 'geral', isPrimary: isFirst }].slice(0, 10);
-          set('expert_photo_url', updated.find(p => p.isPrimary)?.dataUrl || updated[0]?.dataUrl || '');
-          return updated;
-        });
+        // Auto-detect dimensions
+        const img = new window.Image();
+        img.onload = () => {
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          const ratio = w / h;
+          // Determine aspect ratio and suggested usage
+          let aspectRatio = '1:1';
+          let usageType = 'geral';
+          if (ratio >= 1.7) { aspectRatio = '16:9'; usageType = 'hero'; }
+          else if (ratio >= 1.3) { aspectRatio = '4:3'; usageType = 'thumbnail'; }
+          else if (ratio >= 0.95 && ratio <= 1.05) { aspectRatio = '1:1'; usageType = 'perfil'; }
+          else if (ratio >= 0.75 && ratio < 0.95) { aspectRatio = '4:5'; usageType = 'geral'; }
+          else if (ratio < 0.65) { aspectRatio = '9:16'; usageType = 'stories'; }
+          else { aspectRatio = '3:4'; usageType = 'geral'; }
+
+          setExpertPhotos(prev => {
+            const isFirst = prev.length === 0;
+            const updated = [...prev, { dataUrl, name: file.name, aspectRatio, usageType, isPrimary: isFirst, width: w, height: h }].slice(0, 10);
+            set('expert_photo_url', updated.find(p => p.isPrimary)?.dataUrl || updated[0]?.dataUrl || '');
+            return updated;
+          });
+        };
+        img.src = dataUrl;
       };
       reader.readAsDataURL(file);
     });
@@ -243,6 +264,8 @@ export function ExpertBriefing() {
     voice_tones: [], words_to_use: [], words_to_avoid: [],
     status: 'draft',
   });
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; });
 
   useEffect(() => {
     if (!tenantId) return;
@@ -262,8 +285,8 @@ export function ExpertBriefing() {
 
         // If briefing exists but not yet in expert_documents, auto-ingest now
         const hasBriefingDoc = docs.some((d: any) => d.source_type === 'briefing');
-        if (!hasBriefingDoc && data.expert_name) {
-          await ingestBriefing(tenantId, data);
+        if (!hasBriefingDoc && dataRef.current.expert_name) {
+          await ingestBriefing(tenantId, dataRef.current);
           const refreshed = await listDocuments(tenantId);
           setKbDocuments(refreshed);
         }
@@ -547,31 +570,33 @@ export function ExpertBriefing() {
                           >
                             <X className="w-3 h-3 text-white" />
                           </button>
-                          {/* Metadata controls */}
+                          {/* Smart detection info */}
                           <div className="p-2 bg-black/40 backdrop-blur-sm space-y-1.5">
-                            <div className="flex gap-1.5">
-                              <select
-                                value={photo.aspectRatio}
-                                onChange={e => setPhotoMeta(idx, 'aspectRatio', e.target.value)}
-                                className="flex-1 text-[10px] bg-black/40 text-white border border-white/20 rounded px-1 py-0.5"
-                              >
-                                <option value="1:1">1:1 Feed</option>
-                                <option value="16:9">16:9 Landscape</option>
-                                <option value="9:16">9:16 Stories</option>
-                                <option value="4:5">4:5 Facebook</option>
-                                <option value="3:4">3:4 Pinterest</option>
-                              </select>
-                              <select
-                                value={photo.usageType}
-                                onChange={e => setPhotoMeta(idx, 'usageType', e.target.value)}
-                                className="flex-1 text-[10px] bg-black/40 text-white border border-white/20 rounded px-1 py-0.5"
-                              >
-                                <option value="geral">Geral</option>
-                                <option value="perfil">Perfil</option>
-                                <option value="hero">Hero/Banner</option>
-                                <option value="stories">Stories</option>
-                                <option value="thumbnail">Thumbnail</option>
-                              </select>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {/* Detected dimensions */}
+                              {(photo as any).width && (
+                                <span className="text-[9px] bg-white/10 text-white/70 px-1.5 py-0.5 rounded font-mono">
+                                  {(photo as any).width}×{(photo as any).height}
+                                </span>
+                              )}
+                              {/* Auto-detected aspect ratio */}
+                              <span className="text-[9px] bg-violet-500/30 text-violet-200 px-1.5 py-0.5 rounded font-semibold">
+                                {photo.aspectRatio}
+                              </span>
+                              {/* Suggested usage */}
+                              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-semibold',
+                                photo.usageType === 'stories' ? 'bg-pink-500/30 text-pink-200' :
+                                photo.usageType === 'hero' ? 'bg-amber-500/30 text-amber-200' :
+                                photo.usageType === 'perfil' ? 'bg-emerald-500/30 text-emerald-200' :
+                                photo.usageType === 'thumbnail' ? 'bg-blue-500/30 text-blue-200' :
+                                'bg-slate-500/30 text-slate-200'
+                              )}>
+                                {photo.usageType === 'stories' ? '📱 Stories/Reels' :
+                                 photo.usageType === 'hero' ? '🖼️ Banner/YouTube' :
+                                 photo.usageType === 'perfil' ? '👤 Feed/Perfil' :
+                                 photo.usageType === 'thumbnail' ? '🎬 Thumbnail' :
+                                 '📸 Geral'}
+                              </span>
                             </div>
                             {!photo.isPrimary && (
                               <button
@@ -596,6 +621,52 @@ export function ExpertBriefing() {
                 </div>
                 
                 <TagInput label="Credenciais" values={data.expert_credentials || []} onChange={v => set('expert_credentials', v)} placeholder="Ex: MBA em Marketing → Enter" onGenerateAI={() => handleGenerateField('expert_credentials', 'Credenciais Acadêmicas ou Profissionais')} isGenerating={generatingField === 'expert_credentials'} />
+
+                {/* Brand Identity Visual section */}
+                <div className="mt-6 pt-5 border-t border-border/40">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Palette className="w-4 h-4 text-violet-400" />
+                    <label className="text-sm font-semibold text-foreground">Identidade Visual da Marca</label>
+                    <span className="text-[10px] text-muted-foreground bg-secondary/60 px-2 py-0.5 rounded-full">usado nas artes IA</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] text-muted-foreground font-medium">Cor Primária</label>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={data.brand_primary_color || '#7C3AED'} onChange={e => set('brand_primary_color', e.target.value)} className="w-8 h-8 rounded-lg cursor-pointer border border-border/60 p-0.5" />
+                        <input value={data.brand_primary_color || ''} onChange={e => set('brand_primary_color', e.target.value)} placeholder="#7C3AED" className="input-theme text-xs flex-1 font-mono" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] text-muted-foreground font-medium">Cor Secundária</label>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={data.brand_secondary_color || '#1A0A3E'} onChange={e => set('brand_secondary_color', e.target.value)} className="w-8 h-8 rounded-lg cursor-pointer border border-border/60 p-0.5" />
+                        <input value={data.brand_secondary_color || ''} onChange={e => set('brand_secondary_color', e.target.value)} placeholder="#1A0A3E" className="input-theme text-xs flex-1 font-mono" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] text-muted-foreground font-medium">Cor de Destaque</label>
+                      <div className="flex items-center gap-2">
+                        <input type="color" value={data.brand_accent_color || '#EC4899'} onChange={e => set('brand_accent_color', e.target.value)} className="w-8 h-8 rounded-lg cursor-pointer border border-border/60 p-0.5" />
+                        <input value={data.brand_accent_color || ''} onChange={e => set('brand_accent_color', e.target.value)} placeholder="#EC4899" className="input-theme text-xs flex-1 font-mono" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <label className="text-[11px] text-muted-foreground font-medium block mb-1.5">Fonte da Marca</label>
+                    <input value={data.brand_font || ''} onChange={e => set('brand_font', e.target.value)} placeholder="Ex: Montserrat, Inter, Poppins" className="input-theme text-sm" />
+                  </div>
+                  {(data.brand_primary_color || data.brand_secondary_color || data.brand_accent_color) && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">Preview:</span>
+                      <div className="flex gap-1">
+                        {[data.brand_primary_color, data.brand_secondary_color, data.brand_accent_color].filter(Boolean).map((c, i) => (
+                          <div key={i} className="w-8 h-8 rounded-lg border border-white/10 shadow-inner" style={{ backgroundColor: c }} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

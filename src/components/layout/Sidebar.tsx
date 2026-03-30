@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   LayoutDashboard, Users, Calendar, MessageCircle, FileText, ShoppingCart,
   Settings, ChevronLeft, ChevronRight, ChevronDown, Brain, BarChart3, ClipboardList,
-  Target, BookOpen, Sparkles, LogOut, Bot, Menu, X, Wand2, Bell
+  Target, BookOpen, Sparkles, LogOut, Bot, Menu, X, Wand2, Bell, Globe
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUIStore, useAuthStore } from '@/store';
@@ -12,7 +12,7 @@ import { LaunchSwitcher } from '@/components/launches/LaunchSwitcher';
 import { useAuth } from '@/hooks/useAuth';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { useNotifications } from '@/hooks/useNotifications';
-import { format, isToday, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 interface NavItem { id: string; label: string; icon: React.ElementType; badge?: number; section?: string; }
 
@@ -28,6 +28,7 @@ const navItems: NavItem[] = [
   { id: 'rag', label: 'Dossiê IA', icon: Brain, section: 'ai' },
   { id: 'frameworks', label: 'Frameworks & IAs', icon: BookOpen, section: 'ai' },
   { id: 'ai-agents', label: 'Equipe IA', icon: Bot, section: 'ai' },
+  { id: 'landing-page', label: 'Landing Pages', icon: Globe, section: 'ai' },
   { id: 'templates', label: 'Templates', icon: FileText, section: 'tools' },
   { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'tools' },
   { id: 'settings', label: 'Configurações', icon: Settings, section: 'tools' },

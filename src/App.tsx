@@ -16,6 +16,7 @@ import { AIAgents } from '@/components/ai-agents/AIAgents';
 import { ConciergeOnboarding } from '@/components/onboarding/ConciergeOnboarding';
 import { NotionCallback } from '@/components/integrations/NotionCallback';
 import { Settings } from '@/components/settings/Settings';
+import { LandingPageManager } from '@/components/landing-pages/LandingPageManager';
 import { useUIStore, useAuthStore } from '@/store';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -119,6 +120,7 @@ function AppContent() {
       case 'frameworks': return <FrameworkManager />;
       case 'recovery': return <SalesRecovery />;
       case 'ai-agents': return <AIAgents />;
+      case 'landing-page': return <LandingPageManager />;
       case 'onboarding': return <ConciergeOnboarding />;
       case 'templates': return <ComingSoon title="Templates de Mensagem" />;
       case 'analytics': return <ComingSoon title="Analytics Avançado" />;

@@ -253,7 +253,7 @@ export function ActionCalendar() {
   } finally {
     setLoading(false);
   }
-}, [activeTenant?.id, activeLaunch?.id]);
+}, [activeTenant?.id, activeLaunch?.id, activeLaunch?.current_week]);
 
 useEffect(() => { loadCalendar(); }, [loadCalendar]);
 

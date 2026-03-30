@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase/client';
+import { supabase, supabaseUrl } from '@/lib/supabase/client';
 import { BriefingData, callGeminiWithFallback } from './briefingService';
 
 // =============================================
@@ -102,7 +102,6 @@ export const AI_AGENTS: AIAgent[] = [
 // =============================================
 
 export async function scrapeUrl(url: string): Promise<any> {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://mltqpangbglmzbgmmxgu.supabase.co';
     try {
         const response = await fetch(`${supabaseUrl}/functions/v1/scrape-url`, {
             method: 'POST',
@@ -401,23 +400,42 @@ export async function runAgent(
 // Image Generation (Nano Banana — Gemini Native)
 // =============================================
 
+export interface GenerateImageOptions {
+    referenceImageBase64?: string;   // base64 da foto do expert (sem o prefixo data:...)
+    referenceImageMimeType?: string; // 'image/jpeg' | 'image/png' etc.
+}
+
 export async function generateImage(
     prompt: string,
-    _aspectRatio: string = '1:1'
+    _aspectRatio: string = '1:1',
+    options: GenerateImageOptions = {}
 ): Promise<{ imageBase64: string; mimeType: string; durationMs: number }> {
-    const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (!apiKey) throw new Error('VITE_GEMINI_API_KEY não configurada no .env');
 
     const startTime = Date.now();
 
-    // Use Gemini Nano Banana 2 (3.1 Flash Image) for native high-quality image generation
+    // Build parts: if a reference image is provided, send it first so the model
+    // uses it as a visual anchor for face/style consistency.
+    const parts: object[] = [];
+    if (options.referenceImageBase64 && options.referenceImageMimeType) {
+        parts.push({
+            inlineData: {
+                mimeType: options.referenceImageMimeType,
+                data: options.referenceImageBase64,
+            },
+        });
+    }
+    parts.push({ text: prompt });
+
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
+                contents: [{ parts }],
+                generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
             }),
         }
     );
@@ -431,9 +449,8 @@ export async function generateImage(
 
     const data = await response.json();
 
-    // Parse multimodal response — look for inline_data with image
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
+    const responseParts = data.candidates?.[0]?.content?.parts || [];
+    const imagePart = responseParts.find((p: any) => p.inlineData?.mimeType?.startsWith('image/'));
 
     if (!imagePart?.inlineData) {
         throw new Error('Nenhuma imagem foi gerada. Tente um prompt diferente.');
@@ -444,6 +461,89 @@ export async function generateImage(
         mimeType: imagePart.inlineData.mimeType,
         durationMs,
     };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Extract base64 data and mimeType from a data: URL or fetch from an https: URL */
+export async function resolveImageToBase64(
+    src: string
+): Promise<{ base64: string; mimeType: string } | null> {
+    if (!src) return null;
+
+    // data: URL — extract directly
+    if (src.startsWith('data:')) {
+        const match = src.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) return null;
+        return { mimeType: match[1], base64: match[2] };
+    }
+
+    // https: URL — fetch and convert
+    if (src.startsWith('http')) {
+        try {
+            const res = await fetch(src);
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            return new Promise(resolve => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const dataUrl = reader.result as string;
+                    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+                    resolve(match ? { mimeType: match[1], base64: match[2] } : null);
+                };
+                reader.readAsDataURL(blob);
+            });
+        } catch {
+            return null;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Generate a professional hero image of the expert for landing pages.
+ * Uses the expert's photo as a face-reference so the model maintains
+ * facial likeness while placing them in a brand-appropriate context.
+ */
+export async function generateExpertHeroImage(
+    expertPhotoSrc: string,
+    expertName: string,
+    productName: string,
+    brandPrimary: string,
+    brandSecondary: string,
+    scene: 'hero' | 'about' | 'testimonial' = 'hero'
+): Promise<{ imageBase64: string; mimeType: string; durationMs: number }> {
+    const resolved = await resolveImageToBase64(expertPhotoSrc);
+
+    const sceneMap = {
+        hero: `The person is standing in a confident, welcoming pose facing the camera, wearing professional business attire in dark tones with subtle accent using the brand color ${brandPrimary}. Background: deep dark gradient from ${brandSecondary} to near-black with soft bokeh and subtle geometric glow lines in ${brandPrimary}. Cinematic studio lighting. Ultra-high quality, 8K, photorealistic.`,
+        about: `The person is sitting at a modern dark desk, smiling warmly at the camera, wearing a casual-professional blazer. Background: blurred modern office, deep dark tones with ${brandPrimary} accent light from the side. Professional headshot style.`,
+        testimonial: `Circular professional headshot of the person, clean dark background, slight glow border in ${brandPrimary}. Friendly expression, high quality.`,
+    };
+
+    const prompt = [
+        `IMPORTANT: This is the same person shown in the reference photo. Maintain exact facial features, skin tone, hair style, and face shape. Do NOT change the person's face.`,
+        ``,
+        `TASK: Generate a new professional marketing photo for a digital product launch landing page.`,
+        `Person's name: ${expertName}`,
+        `Product: ${productName}`,
+        ``,
+        `SCENE: ${sceneMap[scene]}`,
+        ``,
+        `STYLE RULES:`,
+        `- Brand primary color: ${brandPrimary} (use in clothing accents, background glow, subtle light)`,
+        `- Brand secondary color: ${brandSecondary} (use in background gradients)`,
+        `- Premium Brazilian digital marketing aesthetic`,
+        `- No text overlay, no logos, no watermarks`,
+        `- Portrait orientation (3:4 ratio)`,
+        `- The face must be clearly visible and match the reference photo`,
+    ].join('\n');
+
+    return generateImage(prompt, '3:4', resolved
+        ? { referenceImageBase64: resolved.base64, referenceImageMimeType: resolved.mimeType }
+        : {}
+    );
 }
 
 // =============================================

@@ -6,7 +6,6 @@ import {
     Image, Download, Palette, Zap, Type, Save, Clock, ExternalLink
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { briefingService, callGeminiWithFallback } from '@/lib/services/briefingService';
 import { supabase } from '@/lib/supabase/client';
@@ -190,9 +189,23 @@ function buildImagePrompt(
         minimalista: 'Light gray background. Single deep violet accent. Maximum white space. Simple geometric. Clean sans-serif.',
     };
 
-    const palette = styleMap[imageStyle] || styleMap.profissional;
+
+    // Build brand-aware palette for single creative
+    const brandColors = [
+        b.brand_primary_color,
+        b.brand_secondary_color,
+        b.brand_accent_color,
+    ].filter((v: any) => v && typeof v === 'string' && v.trim());
+
+    const basePalette = styleMap[imageStyle] || styleMap.profissional;
+    const palette = brandColors.length >= 2
+        ? `MANDATORY BRAND COLORS: Primary=${brandColors[0]}, Secondary=${brandColors[1]}${brandColors[2] ? ', Accent=' + brandColors[2] : ''}. These MUST be the dominant colors. ${b.brand_font ? 'BRAND FONT: ' + b.brand_font + '.' : ''} Base style: ${basePalette}`
+        : brandColors.length === 1
+        ? `${basePalette} BRAND PRIMARY COLOR: ${brandColors[0]}. Use as main accent.${b.brand_font ? ' BRAND FONT: ' + b.brand_font + '.' : ''}`
+        : basePalette;
     const audienceCtx = b.target_audience ? ('Target: ' + b.target_audience + '.') : '';
     const toneCtx = b.voice_tones?.length ? ('Tone: ' + b.voice_tones.join(', ') + '.') : '';
+
 
     // Hard-limit headline to 35 chars at word boundary — prevents text clipping
     const hw = rawHeadline.trim().split(' ');
@@ -268,7 +281,7 @@ export function ActionAIPanel({ action, onClose }: Props) {
     const [carouselProgress, setCarouselProgress] = useState(0);
     const [generatingCarousel, setGeneratingCarousel] = useState(false);
     const [generatingScript, setGeneratingScript] = useState(false);
-    const [scriptApproved, setScriptApproved] = useState(false);
+    const [_scriptApproved, setScriptApproved] = useState(false);
     const [activeSlide, setActiveSlide] = useState(0);
     // Script: array of { texto_principal, legenda_apoio } per slide
     const [carouselScript, setCarouselScript] = useState<Array<{ texto_principal: string; legenda_apoio?: string }> | null>(null);
@@ -282,8 +295,8 @@ export function ActionAIPanel({ action, onClose }: Props) {
     const [savedAt, setSavedAt] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [savedConfirm, setSavedConfirm] = useState(false);
-    const [exportingNotion, setExportingNotion] = useState(false);
-    const [notionDone, setNotionDone] = useState(false);
+    const [exportingNotion, _setExportingNotion] = useState(false);
+    const [notionDone, _setNotionDone] = useState(false);
     const [notionPicker, setNotionPicker] = useState<{ title: string; content: string } | null>(null);
 
     function exportAllToNotion() {
@@ -466,10 +479,9 @@ export function ActionAIPanel({ action, onClose }: Props) {
         // Build brand-aware palette: prefer briefing brand colors if available
         const brandColors = [
             b.brand_primary_color,
-            b.primary_color,
-            b.color_palette,
-            b.brand_colors,
-        ].find(v => v && typeof v === 'string' && v.trim());
+            b.brand_secondary_color,
+            b.brand_accent_color,
+        ].filter((v: any) => v && typeof v === 'string' && v.trim());
 
         const styleMap: Record<string, string> = {
             profissional: 'Dark navy and deep violet gradient (#0F0A2E to #1A0A3E). Bold white typography. Electric violet accent glows.',
@@ -477,10 +489,12 @@ export function ActionAIPanel({ action, onClose }: Props) {
             elegante: 'Deep black (#0A0A0A). Gold/champagne (#D4AF37) typography. Luxury minimal.',
             minimalista: 'Light gray background. Single deep violet accent. Clean sans-serif.',
         };
-        // If briefing has brand colors, override the base style with them
+        // If briefing has brand colors, use them as the DOMINANT palette
         const basePalette = styleMap[imageStyle] || styleMap.profissional;
-        const palette = brandColors
-            ? `${basePalette} BRAND ACCENT COLORS FROM CLIENT: ${brandColors}. Incorporate these colors prominently.`
+        const palette = brandColors.length >= 2
+            ? `MANDATORY BRAND COLORS: Primary=${brandColors[0]}, Secondary=${brandColors[1]}${brandColors[2] ? ', Accent=' + brandColors[2] : ''}. These MUST be the dominant colors in the design. Background should use the secondary color. Text highlights and accents should use the primary color. ${b.brand_font ? 'BRAND FONT: ' + b.brand_font + '.' : ''} Base style reference: ${basePalette}`
+            : brandColors.length === 1
+            ? `${basePalette} BRAND PRIMARY COLOR: ${brandColors[0]}. Use this as the main accent color throughout the design.${b.brand_font ? ' BRAND FONT: ' + b.brand_font + '.' : ''}`
             : basePalette;
 
         const isFirst = slideIndex === 0;
@@ -1199,12 +1213,31 @@ Responda SOMENTE com JSON válido (sem markdown, sem texto extra):
                                             </div>
                                             {carouselScript.map((s, i) => (
                                                 <div key={i} className="flex items-start gap-2">
-                                                    <span className="text-[10px] font-bold text-pink-400 w-5 shrink-0">
+                                                    <span className="text-[10px] font-bold text-pink-400 w-5 shrink-0 pt-1.5">
                                                         {i === 0 ? '🎯' : i === carouselScript.length - 1 ? '🚀' : `0${i}`}
                                                     </span>
-                                                    <div>
-                                                        <p className="text-xs text-white font-medium leading-tight">{s.texto_principal}</p>
-                                                        {s.legenda_apoio && <p className="text-[10px] text-slate-400 mt-0.5">{s.legenda_apoio}</p>}
+                                                    <div className="flex-1 space-y-1">
+                                                        <input
+                                                            value={s.texto_principal}
+                                                            onChange={e => {
+                                                                const updated = [...carouselScript];
+                                                                updated[i] = { ...updated[i], texto_principal: e.target.value };
+                                                                setCarouselScript(updated);
+                                                            }}
+                                                            className="w-full text-xs text-white font-medium bg-transparent border border-white/10 rounded px-2 py-1 focus:border-violet-500/50 focus:outline-none transition-colors"
+                                                            maxLength={55}
+                                                        />
+                                                        <input
+                                                            value={s.legenda_apoio || ''}
+                                                            onChange={e => {
+                                                                const updated = [...carouselScript];
+                                                                updated[i] = { ...updated[i], legenda_apoio: e.target.value };
+                                                                setCarouselScript(updated);
+                                                            }}
+                                                            placeholder="Legenda de apoio (opcional)"
+                                                            className="w-full text-[10px] text-slate-400 bg-transparent border border-white/5 rounded px-2 py-0.5 focus:border-violet-500/30 focus:outline-none transition-colors"
+                                                            maxLength={45}
+                                                        />
                                                     </div>
                                                 </div>
                                             ))}
