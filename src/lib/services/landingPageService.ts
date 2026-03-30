@@ -170,17 +170,14 @@ export const DEFAULT_SECTIONS: Omit<PageSection, 'status' | 'html'>[] = [
 // ── Shared context (small, used in every section prompt) ──────────────────
 
 function buildSharedContext(b: BriefingData, colors: ReturnType<typeof buildColorSystem>, captureLeadUrl: string, tenantId: string, launchId: string | null, landingPageId: string): string {
-  return `CONTEXTO DA MARCA (use em toda decisão de copy e visual):
-Expert: ${b.expert_name || 'Expert'} | Produto: ${b.product_name || 'Produto Digital'}
-Promessa: ${b.main_promise || ''} | Benefício: ${b.main_benefit || ''}
-Público: ${b.target_audience || ''} | Tom: ${b.voice_tones?.join(', ') || 'Profissional'}
-Preço: R$ ${b.product_price || '997'} em até ${b.product_installments || 12}x | Garantia: ${b.product_guarantee || '7 dias'}
-
-CORES OBRIGATÓRIAS: primária=${colors.primary} | secundária=${colors.secondary} | destaque=${colors.accent} | fonte=${b.brand_font || 'Inter'}
-REGRA: USE EXATAMENTE estas cores. Nunca substitua por genéricas.
-
-CAPTURA DE LEAD: POST ${captureLeadUrl}
-Body: { tenant_id:"${tenantId}", launch_id:"${launchId||''}", landing_page_id:"${landingPageId}", name, email, phone, source:"landing_page" }`.trim();
+  // Keep this minimal — it is repeated in EVERY section prompt
+  return [
+    `Expert:${b.expert_name||'Expert'} Produto:${b.product_name||'Produto'} Promessa:${(b.main_promise||'').slice(0,120)}`,
+    `Público:${(b.target_audience||'').slice(0,80)} Tom:${b.voice_tones?.slice(0,2).join(',')||'Profissional'}`,
+    `Preço:R$${b.product_price||'997'} ${b.product_installments||12}x Garantia:${b.product_guarantee||'7 dias'}`,
+    `CORES: primary=${colors.primary} secondary=${colors.secondary} accent=${colors.accent} font=${b.brand_font||'Inter'}`,
+    `FORM POST:${captureLeadUrl} body:{tenant_id:"${tenantId}",launch_id:"${launchId||''}",landing_page_id:"${landingPageId}",name,email,phone}`,
+  ].join('\n');
 }
 
 // ── Section prompt builders ────────────────────────────────────────────────
@@ -440,7 +437,7 @@ export async function generateLandingPageHtml(
   if (!chosenFramework) chosenFramework = availableFrameworks.find(f => !f.is_global) || availableFrameworks[0];
   // Truncate framework content to 3000 chars to keep each prompt well under limit
   const frameworkHint = chosenFramework
-    ? `${chosenFramework.name}:\n${chosenFramework.content.slice(0, 3000)}`
+    ? `${chosenFramework.name}:\n${chosenFramework.content.slice(0, 600)}`
     : '';
 
   // Initialize sections
@@ -460,7 +457,7 @@ export async function generateLandingPageHtml(
       const raw = await callGeminiWithFallback(prompt, {
         temperature: 0.3,
         maxOutputTokens: 8192,
-        forceModel: 'gemini-2.5-flash',
+        // No forceModel — use fallback chain (2.5-pro → 2.5-flash → 1.5-flash)
       });
       sections[i] = { ...sections[i], status: 'done', html: stripMarkdown(raw) };
     } catch (err: any) {

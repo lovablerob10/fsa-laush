@@ -34,13 +34,15 @@ export async function callGeminiWithFallback(
             );
             if (!response.ok) {
                 const err = await response.json();
-                // 404 = model not available, 429 = quota exceeded → try next model
-                if (response.status === 404 || response.status === 429) {
-                    lastError = new Error(err.error?.message || `Erro ${response.status} no modelo ${model}`);
-                    console.warn(`[Gemini] Modelo ${model} indisponível, tentando próximo...`);
+                const errMsg = err.error?.message || `Erro ${response.status} no modelo ${model}`;
+                // 404 = model not available, 429 = quota exceeded, 400 w/ token = input too large → try next model
+                const isTokenLimit = response.status === 400 && errMsg.toLowerCase().includes('token');
+                if (response.status === 404 || response.status === 429 || isTokenLimit) {
+                    lastError = new Error(errMsg);
+                    console.warn(`[Gemini] Modelo ${model} indisponível/token-limit, tentando próximo...`);
                     continue;
                 }
-                throw new Error(err.error?.message || `Erro Gemini: ${response.status}`);
+                throw new Error(errMsg);
             }
             const data = await response.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -53,7 +55,8 @@ export async function callGeminiWithFallback(
             }
             return text;
         } catch (err: any) {
-            if (err.message?.includes('indisponível') || err.message?.includes('404') || err.message?.includes('429')) {
+            const msg = err.message || '';
+            if (msg.includes('indisponível') || msg.includes('404') || msg.includes('429') || (msg.includes('token') && msg.includes('400'))) {
                 lastError = err;
                 continue;
             }
