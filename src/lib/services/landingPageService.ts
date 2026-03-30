@@ -1,5 +1,6 @@
 import { supabase, supabaseUrl } from '@/lib/supabase/client';
 import { BriefingData, callGeminiWithFallback } from './briefingService';
+import { listFrameworksForType, buildFrameworkInstruction, FrameworkData } from './frameworkService';
 
 // =============================================
 // Types
@@ -138,16 +139,40 @@ function buildColorSystem(b: BriefingData): { css: string; primary: string; seco
   return { css, primary, secondary, accent };
 }
 
+export async function listPageFrameworks(tenantId: string): Promise<FrameworkData[]> {
+  return listFrameworksForType(tenantId, 'page');
+}
+
 export async function generateLandingPageHtml(
   briefing: BriefingData,
   tenantId: string,
   launchId: string | null,
   landingPageId: string,
-  userNotes: string = ''
+  userNotes: string = '',
+  selectedFrameworkId?: string
 ): Promise<string> {
   const colors = buildColorSystem(briefing);
   const captureLeadUrl = `${supabaseUrl}/functions/v1/capture-lead`;
   const font = briefing.brand_font || 'Inter';
+
+  // Load available page frameworks and pick the selected one (or best match)
+  const availableFrameworks = await listFrameworksForType(tenantId, 'page');
+  let chosenFramework: FrameworkData | undefined;
+  if (selectedFrameworkId) {
+    chosenFramework = availableFrameworks.find(f => f.id === selectedFrameworkId);
+  }
+  if (!chosenFramework) {
+    // Auto-select: prefer tenant-specific, then global
+    chosenFramework = availableFrameworks.find(f => !f.is_global) || availableFrameworks[0];
+  }
+  const frameworkBlock = chosenFramework
+    ? `═══════════════════════════════════════════
+FRAMEWORK DE COPY SELECIONADO — SIGA ESTA ESTRUTURA
+═══════════════════════════════════════════
+${buildFrameworkInstruction(chosenFramework)}
+
+INSTRUÇÃO CRÍTICA: A estrutura de seções e argumentação acima é LEI. Cada seção do framework deve aparecer na página, na ordem correta, com o copy adaptado ao briefing do expert.`
+    : '';
 
   const painPoints = briefing.audience_pain_points?.map(p => `<li>❌ ${p}</li>`).join('\n') || '<li>❌ Falta de resultados concretos</li>';
   const desires = briefing.audience_desires?.map(d => `<li>✅ ${d}</li>`).join('\n') || '';
@@ -215,8 +240,9 @@ tenant_id: "${tenantId}"
 launch_id: "${launchId || ''}"
 landing_page_id: "${landingPageId}"
 
-═══════════════════════════════════════════
-ESTRUTURA OBRIGATÓRIA DA PÁGINA (10 seções)
+${frameworkBlock ? frameworkBlock + '\n\n' : ''}═══════════════════════════════════════════
+ESTRUTURA ${frameworkBlock ? 'DE REFERÊNCIA COMPLEMENTAR' : 'OBRIGATÓRIA DA PÁGINA'} (10 seções)
+${frameworkBlock ? '(use como inspiração visual/técnica — a estrutura principal é o FRAMEWORK acima)' : ''}
 ═══════════════════════════════════════════
 
 ### SEÇÃO 1 — HERO (dobra zero — acima do fold)

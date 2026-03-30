@@ -19,7 +19,9 @@ import {
   getLandingPagePublicUrl,
   getLandingPageLeads,
   generateLandingPageHtml,
+  listPageFrameworks,
 } from '@/lib/services/landingPageService';
+import { FrameworkData } from '@/lib/services/frameworkService';
 import { Button } from '@/components/ui/button';
 import { generateExpertHeroImage } from '@/lib/services/agentService';
 
@@ -76,6 +78,8 @@ export function LandingPageManager() {
   const [briefingCache, setBriefingCache] = useState<import('@/lib/services/briefingService').BriefingData | null>(null);
 
   const [userNotes, setUserNotes] = useState('');
+  const [frameworks, setFrameworks] = useState<FrameworkData[]>([]);
+  const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>('auto');
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [editableName, setEditableName] = useState('');
@@ -101,6 +105,12 @@ export function LandingPageManager() {
   }, [tenantId, launchId]);
 
   useEffect(() => { loadPages(); }, [loadPages]);
+
+  // ── Load page frameworks ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!tenantId) return;
+    listPageFrameworks(tenantId).then(setFrameworks).catch(() => {});
+  }, [tenantId]);
 
   // ── Load leads when tab changes ────────────────────────────────────────
 
@@ -156,7 +166,10 @@ export function LandingPageManager() {
         generation_params: { userNotes, generated_at: new Date().toISOString() },
       });
 
-      const html = await generateLandingPageHtml(briefing, tenantId, launchId, placeholder.id, userNotes);
+      const html = await generateLandingPageHtml(
+        briefing, tenantId, launchId, placeholder.id, userNotes,
+        selectedFrameworkId !== 'auto' ? selectedFrameworkId : undefined
+      );
 
       const updated = await saveLandingPage({ ...placeholder, html_content: html });
       setPages(prev => [updated, ...prev.filter(p => p.id !== updated.id)]);
@@ -419,6 +432,48 @@ export function LandingPageManager() {
                 ? <><Loader2 className="w-4 h-4 animate-spin" />Gerando IA...</>
                 : <><Sparkles className="w-4 h-4" />Gerar com IA</>}
             </Button>
+
+            {/* Framework selector */}
+            {frameworks.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Framework de Copy</p>
+                <div className="space-y-1">
+                  <button
+                    onClick={() => setSelectedFrameworkId('auto')}
+                    className={cn(
+                      'w-full text-left px-2.5 py-2 rounded-lg border text-xs transition-all',
+                      selectedFrameworkId === 'auto'
+                        ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                        : 'border-slate-700/40 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                    )}
+                  >
+                    <span className="font-semibold">✨ Auto (melhor disponível)</span>
+                  </button>
+                  {frameworks.map(fw => (
+                    <button
+                      key={fw.id}
+                      onClick={() => setSelectedFrameworkId(fw.id)}
+                      className={cn(
+                        'w-full text-left px-2.5 py-2 rounded-lg border text-xs transition-all',
+                        selectedFrameworkId === fw.id
+                          ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                          : 'border-slate-700/40 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-semibold truncate">{fw.name}</span>
+                        {fw.is_global && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-500/80 border border-amber-500/20 flex-shrink-0">Padrão</span>
+                        )}
+                      </div>
+                      {fw.description && (
+                        <p className="text-[10px] text-slate-600 mt-0.5 line-clamp-1">{fw.description}</p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <textarea
               value={userNotes}
