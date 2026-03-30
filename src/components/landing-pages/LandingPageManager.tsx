@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store';
 import { briefingService } from '@/lib/services/briefingService';
 import {
   LandingPage,
+  PageSection,
   listLandingPages,
   saveLandingPage,
   publishLandingPage,
@@ -80,6 +81,7 @@ export function LandingPageManager() {
   const [userNotes, setUserNotes] = useState('');
   const [frameworks, setFrameworks] = useState<FrameworkData[]>([]);
   const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>('auto');
+  const [generatingSections, setGeneratingSections] = useState<PageSection[]>([]);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [editableName, setEditableName] = useState('');
@@ -153,11 +155,11 @@ export function LandingPageManager() {
   async function handleGenerate() {
     if (!tenantId) return;
     setGenerating(true);
+    setGeneratingSections([]);
     try {
       const briefing = await briefingService.fetchByTenant(tenantId);
       if (!briefing) throw new Error('Preencha o Briefing do Expert antes de gerar a landing page.');
 
-      // Create a placeholder page first to get the ID (needed for the lead form endpoint)
       const placeholder = await saveLandingPage({
         tenant_id: tenantId,
         launch_id: launchId,
@@ -168,13 +170,15 @@ export function LandingPageManager() {
 
       const html = await generateLandingPageHtml(
         briefing, tenantId, launchId, placeholder.id, userNotes,
-        selectedFrameworkId !== 'auto' ? selectedFrameworkId : undefined
+        selectedFrameworkId !== 'auto' ? selectedFrameworkId : undefined,
+        (sections) => setGeneratingSections(sections)
       );
 
       const updated = await saveLandingPage({ ...placeholder, html_content: html });
       setPages(prev => [updated, ...prev.filter(p => p.id !== updated.id)]);
       setActivePage(updated);
       setCodeContent(html);
+      setGeneratingSections([]);
       setActiveTab('preview');
       showMsg('ok', '✅ Landing page gerada com sucesso!');
     } catch (e: any) {
@@ -596,23 +600,61 @@ export function LandingPageManager() {
                 {activeTab === 'preview' && (
                   <div className="h-full flex items-center justify-center bg-slate-950/50 p-4">
                     {generating ? (
-                      <div className="text-center space-y-4">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center mx-auto animate-pulse">
-                          <Sparkles className="w-8 h-8 text-white" />
+                      <div className="w-full max-w-md space-y-3">
+                        <div className="text-center mb-6">
+                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center mx-auto mb-3 animate-pulse shadow-lg shadow-violet-500/30">
+                            <Sparkles className="w-7 h-7 text-white" />
+                          </div>
+                          <p className="text-white font-bold text-lg">Construindo seção por seção</p>
+                          <p className="text-slate-400 text-sm mt-1">Cada seção recebe atenção total da IA</p>
                         </div>
-                        <div>
-                          <p className="text-white font-semibold">Gerando sua Landing Page...</p>
-                          <p className="text-slate-400 text-sm mt-1">A IA está construindo sua página de alta conversão</p>
-                        </div>
-                        <div className="flex items-center justify-center gap-1.5">
-                          {['Analisando briefing', 'Aplicando cores da marca', 'Construindo seções', 'Adicionando animações'].map((step, i) => (
-                            <div key={i} className="flex items-center gap-1 text-[11px] text-slate-500">
-                              <Loader2 className="w-3 h-3 animate-spin text-violet-400" />
-                              {step}
-                              {i < 3 && <ChevronRight className="w-3 h-3" />}
+
+                        {generatingSections.length > 0 ? (
+                          <div className="space-y-2">
+                            {generatingSections.map(s => (
+                              <div key={s.id} className={cn(
+                                'flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-300',
+                                s.status === 'done'      && 'border-emerald-500/30 bg-emerald-500/5',
+                                s.status === 'generating'&& 'border-violet-500/40 bg-violet-500/10',
+                                s.status === 'error'     && 'border-red-500/30 bg-red-500/5',
+                                s.status === 'pending'   && 'border-slate-800/50 bg-slate-900/30',
+                              )}>
+                                <span className="text-base w-6 text-center flex-shrink-0">
+                                  {s.status === 'done'       ? '✅' :
+                                   s.status === 'generating' ? '⚡' :
+                                   s.status === 'error'      ? '❌' :
+                                   s.emoji}
+                                </span>
+                                <span className={cn(
+                                  'text-sm font-medium flex-1',
+                                  s.status === 'done'       && 'text-emerald-400',
+                                  s.status === 'generating' && 'text-violet-300',
+                                  s.status === 'error'      && 'text-red-400',
+                                  s.status === 'pending'    && 'text-slate-600',
+                                )}>
+                                  {s.label}
+                                </span>
+                                {s.status === 'generating' && (
+                                  <Loader2 className="w-4 h-4 text-violet-400 animate-spin flex-shrink-0" />
+                                )}
+                              </div>
+                            ))}
+                            <div className="mt-3 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all duration-500"
+                                style={{ width: `${(generatingSections.filter(s => s.status === 'done').length / generatingSections.length) * 100}%` }}
+                              />
                             </div>
-                          ))}
-                        </div>
+                            <p className="text-center text-xs text-slate-500">
+                              {generatingSections.filter(s => s.status === 'done').length} / {generatingSections.length} seções concluídas
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="text-center text-slate-500 text-sm py-4">
+                            <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-violet-400" />
+                            Preparando o briefing...
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className={cn(

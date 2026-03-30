@@ -143,209 +143,332 @@ export async function listPageFrameworks(tenantId: string): Promise<FrameworkDat
   return listFrameworksForType(tenantId, 'page');
 }
 
+// ── Section definitions ────────────────────────────────────────────────────
+
+export interface PageSection {
+  id: string;
+  label: string;
+  emoji: string;
+  status: 'pending' | 'generating' | 'done' | 'error';
+  html: string;
+}
+
+export const DEFAULT_SECTIONS: Omit<PageSection, 'status' | 'html'>[] = [
+  { id: 'hero',         label: 'Hero + Formulário',      emoji: '🎯' },
+  { id: 'trust',        label: 'Barra de Confiança',     emoji: '⭐' },
+  { id: 'problem',      label: 'O Problema',             emoji: '😣' },
+  { id: 'solution',     label: 'A Solução',              emoji: '💡' },
+  { id: 'expert',       label: 'Sobre o Expert',         emoji: '🏆' },
+  { id: 'offer',        label: 'O que você vai receber', emoji: '📦' },
+  { id: 'bonuses',      label: 'Bônus Especiais',        emoji: '🎁' },
+  { id: 'testimonials', label: 'Depoimentos',            emoji: '💬' },
+  { id: 'pricing',      label: 'Oferta + Garantia',      emoji: '💰' },
+  { id: 'faq',          label: 'FAQ (Objeções)',          emoji: '❓' },
+  { id: 'footer',       label: 'Footer + CTA Final',     emoji: '🔻' },
+];
+
+// ── Shared context (small, used in every section prompt) ──────────────────
+
+function buildSharedContext(b: BriefingData, colors: ReturnType<typeof buildColorSystem>, captureLeadUrl: string, tenantId: string, launchId: string | null, landingPageId: string): string {
+  return `CONTEXTO DA MARCA (use em toda decisão de copy e visual):
+Expert: ${b.expert_name || 'Expert'} | Produto: ${b.product_name || 'Produto Digital'}
+Promessa: ${b.main_promise || ''} | Benefício: ${b.main_benefit || ''}
+Público: ${b.target_audience || ''} | Tom: ${b.voice_tones?.join(', ') || 'Profissional'}
+Preço: R$ ${b.product_price || '997'} em até ${b.product_installments || 12}x | Garantia: ${b.product_guarantee || '7 dias'}
+
+CORES OBRIGATÓRIAS: primária=${colors.primary} | secundária=${colors.secondary} | destaque=${colors.accent} | fonte=${b.brand_font || 'Inter'}
+REGRA: USE EXATAMENTE estas cores. Nunca substitua por genéricas.
+
+CAPTURA DE LEAD: POST ${captureLeadUrl}
+Body: { tenant_id:"${tenantId}", launch_id:"${launchId||''}", landing_page_id:"${landingPageId}", name, email, phone, source:"landing_page" }`.trim();
+}
+
+// ── Section prompt builders ────────────────────────────────────────────────
+
+function buildSectionPrompt(
+  sectionId: string,
+  b: BriefingData,
+  colors: ReturnType<typeof buildColorSystem>,
+  sharedCtx: string,
+  frameworkHint: string,
+  userNotes: string
+): string {
+  const font = b.brand_font || 'Inter';
+
+  const base = `Você é o NOBRE, arquiteto de landing pages premium para o mercado digital brasileiro.
+
+RETORNE APENAS o HTML da seção — um único elemento <section> ou <footer> completo.
+SEM <!DOCTYPE>, SEM <html>, SEM <head>, SEM <body>, SEM markdown, SEM explicações.
+O HTML será inserido dentro de uma página que já tem Tailwind CDN, GSAP, Google Fonts (${font}) e Iconify.
+
+${sharedCtx}
+${frameworkHint ? '\nFRAMEWORK DE REFERÊNCIA PARA ESTA SEÇÃO:\n' + frameworkHint : ''}
+${userNotes ? '\nNOTAS DO USUÁRIO: ' + userNotes : ''}
+
+PADRÃO VISUAL OBRIGATÓRIO:
+- Fundo: black / #0a0a0a / stone-950 (dark premium)
+- Cards: glassmorphism (bg-white/5 backdrop-blur-md border border-white/10)
+- Bordas brilhantes: box-shadow 0 0 20px ${colors.primary}40
+- Botões: background ${colors.primary}, hover escurecido, rounded-full, font-bold, pulse animation
+- Texto: branco para títulos, slate-300 para corpo
+- Padding de seção: py-20 md:py-28, container max-w-6xl mx-auto px-6
+
+`;
+
+  const sections: Record<string, string> = {
+    hero: `${base}
+SEÇÃO: HERO (dobra zero — acima do fold)
+- Nav sticky minimalista com logo/nome do produto e botão CTA
+- Headline PODEROSA baseada em: "${b.main_promise || b.product_name}" (máx 10 palavras, fonte grande, gradient text com as cores da marca)
+- Subheadline: benefício em 2 frases curtas e diretas
+- Foto do expert: ${b.expert_photo_url ? `<img src="${b.expert_photo_url}" ...>` : 'placeholder elegante com gradiente'} — estilize com borda brilhante, sombra e blend-mode
+- Background: gradiente de ${colors.secondary} para black com partículas/noise sutil
+- Formulário inline ou lateral (Nome, Email, WhatsApp + botão CTA pulsante)
+- Animação GSAP: gsap.from(".hero-content", {y:60, opacity:0, duration:1, ease:"power3.out"})
+- Função JS captureLeadSubmit(formEl): fetch POST ao endpoint acima, spinner, mensagem de sucesso`,
+
+    trust: `${base}
+SEÇÃO: BARRA DE CONFIANÇA (trust bar)
+- Fundo levemente diferente (stone-900 ou slate-900) para contrastar com hero
+- 4 métricas em destaque: crie números realistas para o nicho ("1.200+ alunos", "98% de satisfação", etc)
+- Ícones Iconify para cada métrica
+- Animação counter: gsap.to(".counter", {textContent: targetValue, duration:2, snap:{textContent:1}, scrollTrigger:{trigger:".trust-bar", start:"top 80%"}})
+- Selos de segurança e garantia inline`,
+
+    problem: `${base}
+SEÇÃO: O PROBLEMA
+- Headline de empatia e dor (ex: "Você já se sentiu assim?")
+- Dores do público: ${b.audience_pain_points?.join(' | ') || 'frustração com falta de resultados'}
+- Cada dor em card vermelho/escuro com ícone ❌
+- Texto de transição levando à solução
+- Animação fade-in staggered via ScrollTrigger`,
+
+    solution: `${base}
+SEÇÃO: A SOLUÇÃO
+- Headline de transformação (contraste com a seção anterior)
+- Diferencial: "${b.differentiation || ''}"
+- Desejos do público: ${b.audience_desires?.join(' | ') || ''}
+- Cards de transformação (antes/depois ou bullets de resultado)
+- Visual verde/emerald para contraste com vermelho do problema
+- CTA secundário ao final`,
+
+    expert: `${base}
+SEÇÃO: SOBRE O EXPERT — AUTORIDADE
+- Foto grande: ${b.expert_photo_url || 'placeholder'}
+- Nome em destaque: ${b.expert_name || 'Expert'}
+- Bio: "${b.expert_bio || ''}"
+- Credenciais listadas visualmente: ${b.expert_credentials?.join(' | ') || ''}
+- Tom pessoal, conectivo, primeira pessoa
+- Quote destacada com borda ${colors.primary}
+- Layout: foto à esquerda, texto à direita (stack no mobile)`,
+
+    offer: `${base}
+SEÇÃO: O QUE VOCÊ VAI RECEBER
+- Headline: "Tudo que você vai ter acesso"
+- Crie 4-6 módulos/bônus/benefícios realistas para o produto "${b.product_name}"
+- Cada item: card glassmorphism com número, ícone Iconify, título e 1 linha de descrição
+- Badge de valor percebido em cada card (ex: "Valor: R$ 297")
+- CTA ao final`,
+
+    bonuses: `${base}
+SEÇÃO: BÔNUS ESPECIAIS
+- Headline: "E ainda tem mais…"
+- Bônus do briefing: ${b.product_bonuses?.join(' | ') || 'crie 2-3 bônus relevantes para o nicho'}
+- Cada bônus: card com badge "BÔNUS" na cor ${colors.accent}, descrição e valor
+- Total de bônus somado em destaque
+- Senso de urgência: "Disponível apenas nesta oferta"`,
+
+    testimonials: `${base}
+SEÇÃO: DEPOIMENTOS / PROVA SOCIAL
+- Headline: "O que nossos alunos dizem"
+- 3 depoimentos realistas e específicos para o nicho "${b.target_audience}"
+- Cada depoimento: avatar com iniciais (círculo colorido), nome, cidade, estrelas ⭐⭐⭐⭐⭐, texto em aspas
+- Layout grid 3 colunas (stack no mobile)
+- Cards com borda ${colors.primary}/30`,
+
+    pricing: `${base}
+SEÇÃO: OFERTA + GARANTIA (CTA principal)
+- Urgência: "Oferta por tempo limitado" ou vagas limitadas
+- Preço riscado (inflado) e preço real em destaque enorme
+- "${b.product_installments || 12}x de R$ ${b.product_price ? Math.round(b.product_price / (b.product_installments || 12)) : '97'}" em destaque
+- Botão CTA enorme, pulsante, gradient ${colors.primary} → ${colors.accent}
+- Ícone de escudo + garantia "${b.product_guarantee || '7 dias'} sem riscos"
+- Formulário de captura novamente (quem não comprou ainda, deixa o lead)
+- Countdown timer visual (decorativo)`,
+
+    faq: `${base}
+SEÇÃO: FAQ — QUEBRANDO OBJEÇÕES
+- Headline: "Suas dúvidas respondidas"
+- Accordion interativo para cada objeção
+- Objeções do briefing: ${b.audience_objections?.join(' | ') || 'crie 4-5 objeções comuns para o nicho'}
+- Para cada objeção: resposta empática que usa "${b.differentiation}" como argumento
+- JS do accordion: toggleFaq(el) { el.nextElementSibling.classList.toggle("hidden") }
+- CTA ao final do FAQ`,
+
+    footer: `${base}
+SEÇÃO: FOOTER + CTA FINAL
+- CTA final de alta urgência: frase curta e poderosa
+- Formulário de captura de lead completo (Nome, Email, WhatsApp + botão)
+- Links: Política de Privacidade | Termos de Uso (hrefs vazios "#")
+- Copyright: © ${new Date().getFullYear()} ${b.expert_name || b.product_name || 'Launch Lab'}. Todos os direitos reservados.
+- Aviso de garantia e segurança
+- Botão CTA flutuante fixo no canto inferior direito (mobile): link âncora para o formulário principal`,
+  };
+
+  return sections[sectionId] || `${base}\nGere uma seção HTML premium para: ${sectionId}`;
+}
+
+function stripMarkdown(html: string): string {
+  return html
+    .replace(/^```html\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+// ── Assemble full HTML page from sections ─────────────────────────────────
+
+function assemblePage(sections: PageSection[], b: BriefingData, colors: ReturnType<typeof buildColorSystem>): string {
+  const font = b.brand_font || 'Inter';
+  const sectionHtml = sections.map(s => s.html).filter(Boolean).join('\n\n');
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${b.product_name || 'Landing Page'} — ${b.expert_name || ''}</title>
+  <meta name="description" content="${b.main_promise || b.product_description || ''}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=${font.replace(/ /g,'+')}:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
+  <style>
+    :root {
+      --brand-primary: ${colors.primary};
+      --brand-secondary: ${colors.secondary};
+      --brand-accent: ${colors.accent};
+      --brand-font: '${font}', sans-serif;
+    }
+    * { font-family: var(--brand-font); box-sizing: border-box; }
+    html { background: #0a0a0a; color: #f1f5f9; }
+    .brand-glow { box-shadow: 0 0 30px ${colors.primary}40; }
+    .brand-border { border-color: ${colors.primary}50; }
+    .brand-gradient { background: linear-gradient(135deg, ${colors.primary}, ${colors.accent}); }
+    .brand-text { background: linear-gradient(135deg, ${colors.primary}, ${colors.accent}); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    @keyframes pulse-cta { 0%,100%{box-shadow:0 0 0 0 ${colors.primary}60} 50%{box-shadow:0 0 0 16px transparent} }
+    .cta-pulse { animation: pulse-cta 2s infinite; }
+    .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+  </style>
+</head>
+<body class="bg-black antialiased">
+
+${sectionHtml}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script>
+  gsap.registerPlugin(ScrollTrigger);
+
+  // Fade-in staggered for all sections
+  gsap.utils.toArray("section").forEach(sec => {
+    gsap.from(sec, { opacity: 0, y: 40, duration: 0.8, ease: "power2.out",
+      scrollTrigger: { trigger: sec, start: "top 85%", toggleActions: "play none none none" }
+    });
+  });
+
+  // Lead capture
+  function captureLeadSubmit(formEl) {
+    const name  = formEl.querySelector('[name="name"]')?.value?.trim();
+    const email = formEl.querySelector('[name="email"]')?.value?.trim();
+    const phone = formEl.querySelector('[name="phone"]')?.value?.trim();
+    if (!name || !phone) { alert("Por favor preencha nome e WhatsApp."); return; }
+    const btn = formEl.querySelector("button[type=submit]");
+    if (btn) { btn.disabled = true; btn.textContent = "Enviando..."; }
+    fetch("${supabaseUrl}/functions/v1/capture-lead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, phone, source: "landing_page" })
+    })
+    .then(r => r.json())
+    .then(() => {
+      formEl.innerHTML = '<div style="text-align:center;padding:2rem"><div style="font-size:3rem">🎉</div><p style="color:#4ade80;font-weight:700;font-size:1.2rem;margin-top:1rem">Incrível! Você está na lista!</p><p style="color:#94a3b8;margin-top:.5rem">Em breve entraremos em contato.</p></div>';
+    })
+    .catch(() => {
+      if (btn) { btn.disabled = false; btn.textContent = "Quero me inscrever"; }
+      alert("Erro ao enviar. Tente novamente.");
+    });
+  }
+
+  // FAQ accordion
+  function toggleFaq(el) {
+    const answer = el.nextElementSibling;
+    if (answer) answer.classList.toggle("hidden");
+    const icon = el.querySelector(".faq-icon");
+    if (icon) icon.textContent = answer?.classList.contains("hidden") ? "+" : "−";
+  }
+
+  document.querySelectorAll("form").forEach(form => {
+    form.addEventListener("submit", e => { e.preventDefault(); captureLeadSubmit(form); });
+  });
+</script>
+</body>
+</html>`;
+}
+
+// ── Public API — progressive section-by-section generation ────────────────
+
+export type SectionProgressCallback = (sections: PageSection[]) => void;
+
 export async function generateLandingPageHtml(
   briefing: BriefingData,
   tenantId: string,
   launchId: string | null,
   landingPageId: string,
   userNotes: string = '',
-  selectedFrameworkId?: string
+  selectedFrameworkId?: string,
+  onProgress?: SectionProgressCallback
 ): Promise<string> {
   const colors = buildColorSystem(briefing);
   const captureLeadUrl = `${supabaseUrl}/functions/v1/capture-lead`;
-  const font = briefing.brand_font || 'Inter';
+  const sharedCtx = buildSharedContext(briefing, colors, captureLeadUrl, tenantId, launchId, landingPageId);
 
-  // Load available page frameworks and pick the selected one (or best match)
+  // Framework hint (trimmed to avoid token blowup)
   const availableFrameworks = await listFrameworksForType(tenantId, 'page');
   let chosenFramework: FrameworkData | undefined;
-  if (selectedFrameworkId) {
-    chosenFramework = availableFrameworks.find(f => f.id === selectedFrameworkId);
-  }
-  if (!chosenFramework) {
-    // Auto-select: prefer tenant-specific, then global
-    chosenFramework = availableFrameworks.find(f => !f.is_global) || availableFrameworks[0];
-  }
-  const frameworkBlock = chosenFramework
-    ? `═══════════════════════════════════════════
-FRAMEWORK DE COPY SELECIONADO — SIGA ESTA ESTRUTURA
-═══════════════════════════════════════════
-${buildFrameworkInstruction(chosenFramework)}
-
-INSTRUÇÃO CRÍTICA: A estrutura de seções e argumentação acima é LEI. Cada seção do framework deve aparecer na página, na ordem correta, com o copy adaptado ao briefing do expert.`
+  if (selectedFrameworkId) chosenFramework = availableFrameworks.find(f => f.id === selectedFrameworkId);
+  if (!chosenFramework) chosenFramework = availableFrameworks.find(f => !f.is_global) || availableFrameworks[0];
+  // Truncate framework content to 3000 chars to keep each prompt well under limit
+  const frameworkHint = chosenFramework
+    ? `${chosenFramework.name}:\n${chosenFramework.content.slice(0, 3000)}`
     : '';
 
-  const painPoints = briefing.audience_pain_points?.map(p => `<li>❌ ${p}</li>`).join('\n') || '<li>❌ Falta de resultados concretos</li>';
-  const desires = briefing.audience_desires?.map(d => `<li>✅ ${d}</li>`).join('\n') || '';
-  const objections = briefing.audience_objections?.map((o, i) => `
-    <div class="faq-item">
-      <button class="faq-question" onclick="toggleFaq(this)">
-        <span>${o}</span><span class="faq-icon">+</span>
-      </button>
-      <div class="faq-answer" style="display:none">
-        <p>${briefing.differentiation || 'Nossa metodologia é comprovada e garantida.'}</p>
-      </div>
-    </div>
-  `).join('\n') || '';
-  const bonuses = briefing.product_bonuses?.map(b => `
-    <div class="bonus-card">
-      <span class="bonus-badge">BÔNUS</span>
-      <p>${b}</p>
-    </div>
-  `).join('\n') || '';
-  const credentials = briefing.expert_credentials?.map(c => `<li>🏆 ${c}</li>`).join('\n') || '';
+  // Initialize sections
+  const sections: PageSection[] = DEFAULT_SECTIONS.map(s => ({
+    ...s, status: 'pending', html: '',
+  }));
 
-  const prompt = `Você é o NOBRE, arquiteto de landing pages de altíssima conversão para o mercado digital brasileiro.
+  onProgress?.([...sections]);
 
-MISSÃO: Gerar código HTML COMPLETO e PRONTO PARA PRODUÇÃO. Retorne APENAS o HTML — sem markdown, sem \`\`\`, apenas o documento começando em <!DOCTYPE html>.
+  // Generate each section sequentially
+  for (let i = 0; i < sections.length; i++) {
+    sections[i] = { ...sections[i], status: 'generating' };
+    onProgress?.([...sections]);
 
-═══════════════════════════════════════════
-IDENTIDADE DA MARCA
-═══════════════════════════════════════════
-Expert: ${briefing.expert_name || 'Expert'}
-Produto: ${briefing.product_name || 'Produto Digital'}
-Descrição: ${briefing.product_description || ''}
-Promessa central: ${briefing.main_promise || ''}
-Benefício principal: ${briefing.main_benefit || ''}
-Diferencial: ${briefing.differentiation || ''}
-Preço: R$ ${briefing.product_price || '997'}
-Parcelas: até ${briefing.product_installments || 12}x
-Garantia: ${briefing.product_guarantee || '7 dias'}
-Bônus: ${briefing.product_bonuses?.join(' | ') || ''}
-Público-alvo: ${briefing.target_audience || ''}
-Dores do público: ${briefing.audience_pain_points?.join(' | ') || ''}
-Desejos do público: ${briefing.audience_desires?.join(' | ') || ''}
-Objeções: ${briefing.audience_objections?.join(' | ') || ''}
-Tom de voz: ${briefing.voice_tones?.join(', ') || 'Profissional e empático'}
-Bio do expert: ${briefing.expert_bio || ''}
-Credenciais: ${briefing.expert_credentials?.join(', ') || ''}
-Foto do expert: ${briefing.expert_photo_url || ''}
+    try {
+      const prompt = buildSectionPrompt(sections[i].id, briefing, colors, sharedCtx, frameworkHint, userNotes);
+      const raw = await callGeminiWithFallback(prompt, {
+        temperature: 0.3,
+        maxOutputTokens: 8192,
+        forceModel: 'gemini-2.5-flash',
+      });
+      sections[i] = { ...sections[i], status: 'done', html: stripMarkdown(raw) };
+    } catch (err: any) {
+      sections[i] = { ...sections[i], status: 'error', html: `<!-- Erro na seção ${sections[i].id}: ${err.message} -->` };
+    }
 
-═══════════════════════════════════════════
-SISTEMA DE CORES DA MARCA — OBRIGATÓRIO
-═══════════════════════════════════════════
-Cor primária: ${colors.primary}
-Cor secundária: ${colors.secondary}
-Cor de destaque: ${colors.accent}
-Fonte: ${font}
+    onProgress?.([...sections]);
+  }
 
-REGRA ABSOLUTA DE CORES: Use EXATAMENTE estas cores em toda a página. Botões, gradientes, destaques e bordas brilhantes DEVEM usar estas cores. Nunca substitua por paleta genérica.
-
-${colors.css}
-
-═══════════════════════════════════════════
-ENDPOINT DE CAPTURA — INJETAR NO JAVASCRIPT
-═══════════════════════════════════════════
-URL: ${captureLeadUrl}
-tenant_id: "${tenantId}"
-launch_id: "${launchId || ''}"
-landing_page_id: "${landingPageId}"
-
-${frameworkBlock ? frameworkBlock + '\n\n' : ''}═══════════════════════════════════════════
-ESTRUTURA ${frameworkBlock ? 'DE REFERÊNCIA COMPLEMENTAR' : 'OBRIGATÓRIA DA PÁGINA'} (10 seções)
-${frameworkBlock ? '(use como inspiração visual/técnica — a estrutura principal é o FRAMEWORK acima)' : ''}
-═══════════════════════════════════════════
-
-### SEÇÃO 1 — HERO (dobra zero — acima do fold)
-- Headline impactante baseada na promessa central do briefing (máx 10 palavras)
-- Subheadline explicando o benefício em 1-2 frases
-- Foto do expert em destaque (usar URL acima se disponível)
-- Formulário de captura com campos: Nome, Email, WhatsApp + botão CTA pulsante
-- Background: gradiente escuro usando cores da marca
-- GSAP entrance animation: hero fades in + slide up
-
-### SEÇÃO 2 — BARRA DE CONFIANÇA (trust bar)
-- Números impactantes: alunos, resultados, anos de experiência (use dados do briefing ou crie)
-- Selos de garantia e segurança
-- Animação counter via GSAP ScrollTrigger
-
-### SEÇÃO 3 — O PROBLEMA
-- Headline de dor: "Você já se sentiu assim?"
-- Lista visual das dores do público (do briefing)
-- Visual dark com elementos de tensão
-${painPoints}
-
-### SEÇÃO 4 — A SOLUÇÃO
-- Apresentação do produto como solução das dores
-- Highlights do benefício principal e diferencial
-- Visual de transformação (antes/depois)
-${desires}
-
-### SEÇÃO 5 — SOBRE O EXPERT
-- Foto grande + bio completa do briefing
-- Credenciais listadas de forma visual
-- Tom pessoal e conectivo
-${credentials}
-
-### SEÇÃO 6 — O QUE VOCÊ VAI RECEBER
-- Módulos/conteúdos do produto em cards glassmorphism
-- Cada card com ícone, título e breve descrição
-- Badge de valor percebido em cada item
-
-### SEÇÃO 7 — BÔNUS ESPECIAIS
-- Cards de bônus com badge "BÔNUS" em destaque (${colors.accent})
-${bonuses}
-
-### SEÇÃO 8 — DEPOIMENTOS / PROVA SOCIAL
-- 3 depoimentos fictícios mas realistas e específicos para o nicho do expert
-- Fotos de avatar (usar placeholder com iniciais)
-- Estrelas de avaliação
-
-### SEÇÃO 9 — OFERTA E GARANTIA
-- Preço com riscado (valor original inflado) e preço atual destacado
-- Parcelamento em destaque
-- Botão CTA enorme e pulsante
-- Garantia visual com ícone de escudo
-- Urgência (vagas limitadas ou tempo)
-
-### SEÇÃO 10 — FAQ (Objeções)
-- Accordion interativo com as objeções do briefing
-${objections}
-
-### FOOTER
-- Segundo formulário de captura
-- Links de política de privacidade e termos
-- Copyright
-
-═══════════════════════════════════════════
-REQUISITOS TÉCNICOS INEGOCIÁVEIS
-═══════════════════════════════════════════
-1. CDNs no <head>: Tailwind (script CDN), Google Fonts (${font}), Iconify
-2. CDNs no final do <body>: GSAP + ScrollTrigger
-3. Design DARK PREMIUM: fundo preto/stone-950, glassmorphism nos cards (backdrop-blur), bordas brilhantes com box-shadow na cor primária
-4. FORMULÁRIO FUNCIONAL: Ao submeter, chame a função captureLeadSubmit() via JS. Mostre loading spinner, depois mensagem de sucesso.
-5. Animações GSAP obrigatórias: parallax no hero, fade-in staggered nas seções, counter animado na barra de confiança
-6. MOBILE-FIRST: Totalmente responsivo. Menu hamburguer no mobile.
-7. CTA FLUTUANTE: Botão fixo no canto inferior direito no mobile
-8. Todo CSS inline ou em <style> interno — arquivo único
-
-═══════════════════════════════════════════
-JAVASCRIPT PARA CAPTURA DE LEAD
-═══════════════════════════════════════════
-Crie a função captureLeadSubmit(formEl) que:
-1. Lê os valores do formulário (name, email, phone)
-2. Valida campos obrigatórios
-3. Faz fetch POST para: ${captureLeadUrl}
-4. Body: { tenant_id: "${tenantId}", launch_id: "${launchId || ''}", landing_page_id: "${landingPageId}", name, email, phone, source: "landing_page" }
-5. Header: Content-Type: application/json
-6. Enquanto processa: mostra spinner + desabilita botão
-7. Sucesso: esconde formulário, mostra div de agradecimento com confetti emoji
-8. Erro: mostra mensagem amigável
-Todos os botões de CTA e formulários da página devem chamar captureLeadSubmit(this.closest('form'))
-
-${userNotes ? `═══════════════════════════════════════════\nNOTAS ADICIONAIS DO USUÁRIO\n═══════════════════════════════════════════\n${userNotes}` : ''}
-
-Inicie o código HTML agora. Apenas <!DOCTYPE html> até </html>. Sem mais nenhum texto.`;
-
-  const html = await callGeminiWithFallback(prompt, {
-    temperature: 0.25,
-    maxOutputTokens: 65536,
-    forceModel: 'gemini-2.5-pro',
-  });
-
-  // Strip any accidental markdown fences
-  return html
-    .replace(/^```html\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+  return assemblePage(sections, briefing, colors);
 }
