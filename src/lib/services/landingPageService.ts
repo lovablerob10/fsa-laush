@@ -182,6 +182,14 @@ function buildSharedContext(b: BriefingData, colors: ReturnType<typeof buildColo
 
 // ── Section prompt builders ────────────────────────────────────────────────
 
+// Returns the URL only if it's a safe https URL; base64 data: URLs are stripped
+// to avoid injecting megabytes of text into the prompt and hitting token limits.
+function safePhotoUrl(url: string | undefined): string {
+  if (!url) return '';
+  if (url.startsWith('data:')) return ''; // base64 — too large for text prompts
+  return url;
+}
+
 function buildSectionPrompt(
   sectionId: string,
   b: BriefingData,
@@ -191,6 +199,7 @@ function buildSectionPrompt(
   userNotes: string
 ): string {
   const font = b.brand_font || 'Inter';
+  const expertPhotoUrl = safePhotoUrl(b.expert_photo_url);
 
   const base = `Você é o NOBRE, arquiteto de landing pages premium para o mercado digital brasileiro.
 
@@ -218,7 +227,7 @@ SEÇÃO: HERO (dobra zero — acima do fold)
 - Nav sticky minimalista com logo/nome do produto e botão CTA
 - Headline PODEROSA baseada em: "${b.main_promise || b.product_name}" (máx 10 palavras, fonte grande, gradient text com as cores da marca)
 - Subheadline: benefício em 2 frases curtas e diretas
-- Foto do expert: ${b.expert_photo_url ? `<img src="${b.expert_photo_url}" ...>` : 'placeholder elegante com gradiente'} — estilize com borda brilhante, sombra e blend-mode
+- Foto do expert: ${expertPhotoUrl ? `<img src="${expertPhotoUrl}" ...>` : 'placeholder elegante com gradiente (div com iniciais do expert)'} — estilize com borda brilhante, sombra e blend-mode
 - Background: gradiente de ${colors.secondary} para black com partículas/noise sutil
 - Formulário inline ou lateral (Nome, Email, WhatsApp + botão CTA pulsante)
 - Animação GSAP: gsap.from(".hero-content", {y:60, opacity:0, duration:1, ease:"power3.out"})
@@ -251,7 +260,7 @@ SEÇÃO: A SOLUÇÃO
 
     expert: `${base}
 SEÇÃO: SOBRE O EXPERT — AUTORIDADE
-- Foto grande: ${b.expert_photo_url || 'placeholder'}
+- Foto grande: ${expertPhotoUrl || 'placeholder elegante com gradiente e iniciais do expert'}
 - Nome em destaque: ${b.expert_name || 'Expert'}
 - Bio: "${b.expert_bio || ''}"
 - Credenciais listadas visualmente: ${b.expert_credentials?.join(' | ') || ''}
@@ -447,21 +456,36 @@ export async function generateLandingPageHtml(
 
   onProgress?.([...sections]);
 
-  // Generate each section sequentially
+  // Generate each section sequentially with retry logic
   for (let i = 0; i < sections.length; i++) {
     sections[i] = { ...sections[i], status: 'generating' };
     onProgress?.([...sections]);
 
     try {
       const prompt = buildSectionPrompt(sections[i].id, briefing, colors, sharedCtx, frameworkHint, userNotes);
+      console.log(`[LandingPage] Gerando seção "${sections[i].id}" — prompt: ${prompt.length} chars`);
       const raw = await callGeminiWithFallback(prompt, {
         temperature: 0.3,
         maxOutputTokens: 8192,
-        // No forceModel — use fallback chain (2.5-pro → 2.5-flash → 1.5-flash)
       });
       sections[i] = { ...sections[i], status: 'done', html: stripMarkdown(raw) };
     } catch (err: any) {
-      sections[i] = { ...sections[i], status: 'error', html: `<!-- Erro na seção ${sections[i].id}: ${err.message} -->` };
+      console.warn(`[LandingPage] Erro na seção "${sections[i].id}" (tentativa 1): ${err.message}`);
+      // ── Retry with simplified prompt (no framework, shorter context) ──
+      try {
+        console.log(`[LandingPage] Retry da seção "${sections[i].id}" com prompt simplificado...`);
+        const simplePrompt = buildSectionPrompt(sections[i].id, briefing, colors, sharedCtx, '', '');
+        const raw = await callGeminiWithFallback(simplePrompt, {
+          temperature: 0.4,
+          maxOutputTokens: 8192,
+          forceModel: 'gemini-2.5-flash',
+        });
+        sections[i] = { ...sections[i], status: 'done', html: stripMarkdown(raw) };
+        console.log(`[LandingPage] Retry da seção "${sections[i].id}" OK!`);
+      } catch (retryErr: any) {
+        console.error(`[LandingPage] Retry da seção "${sections[i].id}" também falhou: ${retryErr.message}`);
+        sections[i] = { ...sections[i], status: 'error', html: `<!-- Erro na seção ${sections[i].id}: ${err.message} | Retry: ${retryErr.message} -->` };
+      }
     }
 
     onProgress?.([...sections]);

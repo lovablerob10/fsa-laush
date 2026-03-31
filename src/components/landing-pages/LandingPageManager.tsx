@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Globe, Sparkles, Loader2, Copy, Check, ExternalLink, Trash2,
   Eye, Code2, Users, Settings2, Plus, RefreshCw, Rocket,
-  Monitor, Smartphone, ChevronRight, Download, ToggleLeft, ToggleRight,
+  Monitor, Smartphone, Download, ToggleLeft, ToggleRight,
   AlertCircle, CheckCircle2, Clock, Edit3, Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ import {
 } from '@/lib/services/landingPageService';
 import { FrameworkData } from '@/lib/services/frameworkService';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { generateExpertHeroImage } from '@/lib/services/agentService';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -75,12 +76,13 @@ export function LandingPageManager() {
   // Expert hero image generation
   const [expertImageScene, setExpertImageScene] = useState<'hero' | 'about' | 'testimonial'>('hero');
   const [generatingExpertImage, setGeneratingExpertImage] = useState(false);
-  const [expertImageResult, setExpertImageResult] = useState<{ base64: string; mimeType: string } | null>(null);
+  const [expertImageResult, setExpertImageResult] = useState<{ imageBase64: string; mimeType: string } | null>(null);
   const [briefingCache, setBriefingCache] = useState<import('@/lib/services/briefingService').BriefingData | null>(null);
 
   const [userNotes, setUserNotes] = useState('');
   const [frameworks, setFrameworks] = useState<FrameworkData[]>([]);
   const [selectedFrameworkId, setSelectedFrameworkId] = useState<string>('auto');
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generatingSections, setGeneratingSections] = useState<PageSection[]>([]);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -154,6 +156,7 @@ export function LandingPageManager() {
 
   async function handleGenerate() {
     if (!tenantId) return;
+    setIsGenerateModalOpen(false);
     setGenerating(true);
     setGeneratingSections([]);
     try {
@@ -312,7 +315,7 @@ export function LandingPageManager() {
 
   async function handleInjectExpertImage() {
     if (!activePage || !expertImageResult) return;
-    const dataUrl = `data:${expertImageResult.mimeType};base64,${expertImageResult.base64}`;
+    const dataUrl = `data:${expertImageResult.mimeType};base64,${expertImageResult.imageBase64}`;
 
     let updated = activePage.html_content;
     const b = briefingCache;
@@ -425,68 +428,104 @@ export function LandingPageManager() {
         {/* ── Left Panel: Pages list + Generate ──────────────────────── */}
         <div className="w-64 flex-shrink-0 border-r border-border/50 flex flex-col overflow-hidden">
 
-          {/* Generate button */}
-          <div className="p-3 border-b border-border/50 space-y-2">
+          {/* Generate button & Modal */}
+          <div className="p-3 border-b border-border/50">
             <Button
-              onClick={handleGenerate}
+              onClick={() => setIsGenerateModalOpen(true)}
               disabled={generating || !tenantId}
               className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-violet-500/20"
             >
               {generating
                 ? <><Loader2 className="w-4 h-4 animate-spin" />Gerando IA...</>
-                : <><Sparkles className="w-4 h-4" />Gerar com IA</>}
+                : <><Sparkles className="w-4 h-4" />Nova Landing Page</>}
             </Button>
+          </div>
 
-            {/* Framework selector */}
-            {frameworks.length > 0 && (
-              <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Framework de Copy</p>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => setSelectedFrameworkId('auto')}
-                    className={cn(
-                      'w-full text-left px-2.5 py-2 rounded-lg border text-xs transition-all',
-                      selectedFrameworkId === 'auto'
-                        ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
-                        : 'border-slate-700/40 text-slate-500 hover:border-slate-600 hover:text-slate-300'
-                    )}
-                  >
-                    <span className="font-semibold">✨ Auto (melhor disponível)</span>
-                  </button>
-                  {frameworks.map(fw => (
-                    <button
-                      key={fw.id}
-                      onClick={() => setSelectedFrameworkId(fw.id)}
-                      className={cn(
-                        'w-full text-left px-2.5 py-2 rounded-lg border text-xs transition-all',
-                        selectedFrameworkId === fw.id
-                          ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
-                          : 'border-slate-700/40 text-slate-500 hover:border-slate-600 hover:text-slate-300'
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-semibold truncate">{fw.name}</span>
-                        {fw.is_global && (
-                          <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-500/80 border border-amber-500/20 flex-shrink-0">Padrão</span>
+          <Dialog open={isGenerateModalOpen} onOpenChange={setIsGenerateModalOpen}>
+            <DialogContent className="sm:max-w-lg bg-slate-950 border-slate-800 text-slate-200">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
+                  <Sparkles className="w-5 h-5 text-violet-400" />
+                  Gerar Nova Landing Page
+                </DialogTitle>
+                <DialogDescription className="text-slate-400">
+                  Configure as preferências para a nova página. Nossa IA irá construir a página seção por seção usando os dados do seu Expert.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-4">
+                {frameworks.length > 0 && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2 block">
+                      Framework de Copy
+                    </label>
+                    <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
+                      <button
+                        onClick={() => setSelectedFrameworkId('auto')}
+                        className={cn(
+                          'w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-all',
+                          selectedFrameworkId === 'auto'
+                            ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                            : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                         )}
-                      </div>
-                      {fw.description && (
-                        <p className="text-[10px] text-slate-600 mt-0.5 line-clamp-1">{fw.description}</p>
-                      )}
-                    </button>
-                  ))}
+                      >
+                        <span className="font-semibold">✨ Auto (Melhor Escolha)</span>
+                        <p className="text-xs text-slate-500 mt-0.5">A IA escolherá o melhor framework baseado no seu briefing.</p>
+                      </button>
+                      {frameworks.map(fw => (
+                        <button
+                          key={fw.id}
+                          onClick={() => setSelectedFrameworkId(fw.id)}
+                          className={cn(
+                            'w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-all',
+                            selectedFrameworkId === fw.id
+                              ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                              : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold truncate">{fw.name}</span>
+                            {fw.is_global && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500/80 border border-amber-500/20 flex-shrink-0">Padrão</span>
+                            )}
+                          </div>
+                          {fw.description && (
+                            <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{fw.description}</p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2 block">
+                    Notas Adicionais (Opcional)
+                  </label>
+                  <textarea
+                    value={userNotes}
+                    onChange={e => setUserNotes(e.target.value)}
+                    placeholder="Ex: foco em webinário na próxima quinta-feira, destacar bônus exclusivo de mentoria..."
+                    rows={3}
+                    className="w-full text-sm bg-slate-900/50 border border-slate-800 rounded-lg px-3 py-2 text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-violet-500/50"
+                  />
                 </div>
               </div>
-            )}
 
-            <textarea
-              value={userNotes}
-              onChange={e => setUserNotes(e.target.value)}
-              placeholder="Notas opcionais (ex: foco em webinário, destacar bônus...)"
-              rows={2}
-              className="w-full text-xs bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-2 text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-violet-500/50"
-            />
-          </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="ghost" onClick={() => setIsGenerateModalOpen(false)} className="text-slate-400 hover:text-white hover:bg-slate-800">
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleGenerate}
+                  className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Gerar Página Agora
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Pages list */}
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -852,7 +891,7 @@ export function LandingPageManager() {
                         <div className="mt-3 space-y-2">
                           <div className="rounded-xl overflow-hidden border border-pink-500/20 shadow-lg shadow-pink-500/10">
                             <img
-                              src={`data:${expertImageResult.mimeType};base64,${expertImageResult.base64}`}
+                              src={`data:${expertImageResult.mimeType};base64,${expertImageResult.imageBase64}`}
                               alt="Expert hero generated"
                               className="w-full object-cover max-h-72"
                             />
@@ -870,7 +909,7 @@ export function LandingPageManager() {
                             <button
                               onClick={() => {
                                 const a = document.createElement('a');
-                                a.href = `data:${expertImageResult.mimeType};base64,${expertImageResult.base64}`;
+                                a.href = `data:${expertImageResult.mimeType};base64,${expertImageResult.imageBase64}`;
                                 a.download = `expert-hero-${expertImageScene}.${expertImageResult.mimeType.split('/')[1]}`;
                                 a.click();
                               }}
@@ -928,7 +967,7 @@ export function LandingPageManager() {
                   </p>
                 </div>
                 <Button
-                  onClick={handleGenerate}
+                  onClick={() => setIsGenerateModalOpen(true)}
                   disabled={generating || !tenantId}
                   className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-violet-500/20"
                 >

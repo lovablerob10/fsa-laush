@@ -37,9 +37,10 @@ export async function callGeminiWithFallback(
                 const errMsg = err.error?.message || `Erro ${response.status} no modelo ${model}`;
                 // 404 = model not available, 429 = quota exceeded, 400 w/ token = input too large → try next model
                 const isTokenLimit = response.status === 400 && errMsg.toLowerCase().includes('token');
-                if (response.status === 404 || response.status === 429 || isTokenLimit) {
+                const isRetryable = [404, 429, 500, 503].includes(response.status) || isTokenLimit;
+                if (isRetryable) {
                     lastError = new Error(errMsg);
-                    console.warn(`[Gemini] Modelo ${model} indisponível/token-limit, tentando próximo...`);
+                    console.warn(`[Gemini] Modelo ${model} erro ${response.status}, tentando próximo...`);
                     continue;
                 }
                 throw new Error(errMsg);
